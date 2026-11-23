@@ -6,6 +6,7 @@ Vercel project.
 | Project | What it is |
 | --- | --- |
 | [`morning-board`](morning-board) | A timed morning training session: spaced-repetition cards from your own chess blunders (Stockfish in the browser), endgame studies, and backgammon cube decisions with rollouts and a Shorts maker. Follows London and Istanbul mornings. |
+| [`padel-lab`](padel-lab) | Position heatmaps, time at the net and rally lengths from a phone video of a padel match, with a match log against your level. Runs entirely in the browser. |
 | [`strategy-arena`](strategy-arena) | Strategies play repeated games, auctions and bargaining against each other, tournament style, with an animated 9:16 playback of every run. |
 
 ## Deploying on Vercel

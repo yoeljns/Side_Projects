@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [morning-board, strategy-arena]
+        project: [morning-board, padel-lab, strategy-arena]
     defaults:
       run:
         working-directory: ${{ matrix.project }}
