@@ -1,0 +1,47 @@
+<!--
+  Evaluation questions for the server run against the fixture vault (test/fixtures/vault) with
+  VAULT_LIBRARIAN_TODAY=2026-11-23. Read-only; each has one answer checkable by string comparison.
+  The answers were checked by hand against the fixture notes and the tool output.
+-->
+<evaluation>
+  <qa_pair>
+    <question>One note in the vault can also be found under the name "financial instability hypothesis". What is that note's title?</question>
+    <answer>Minsky moment</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Several notes link to a note called "Positional goods" that has not been written yet. How many notes link to it?</question>
+    <answer>4</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>The note on the Minsky moment lists three stages of finance. What is the third stage called, in two words?</question>
+    <answer>Ponzi finance</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Among the notes tagged cycles/technology, one has no links to or from any other note. Which one?</question>
+    <answer>Hype cycle</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In the weekly link suggestions, the note "Speculative manias" (written this week) is paired first with a note that has not been modified since early 2024. What is that old note's title?</question>
+    <answer>Mimetic desire</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>The Turkish note about the debt cycle links to an English note by one of its aliases rather than its title. What is the title of the note the link resolves to?</question>
+    <answer>Long debt cycle</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>The note "Arzu ve taklit" links to two headings of "Mimetic desire", and one of them does not exist in that note. What heading text does the broken link ask for?</question>
+    <answer>Nonexistent heading</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Build the source pack for the "cycles" topic. Which sub-theme is the note "Scarcity and luxury" filed under?</question>
+    <answer>Commodities</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>One daily note mentions the hedonic treadmill in plain text without linking to the note of that name. What is the date of that daily note (YYYY-MM-DD)?</question>
+    <answer>2026-11-17</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>The note "Deleveraging" links to a single paragraph of "Long debt cycle" by block reference. What is the block id, without the caret?</question>
+    <answer>debt-def</answer>
+  </qa_pair>
+</evaluation>

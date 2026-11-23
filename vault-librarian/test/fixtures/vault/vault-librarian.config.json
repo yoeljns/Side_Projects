@@ -1,0 +1,24 @@
+{
+  "outputFolder": "Librarian",
+  "ignore": ["Templates/**"],
+  "dailyNotesFolder": "Daily",
+  "topics": {
+    "desire": {
+      "title": "Desire",
+      "seedTags": ["desire"],
+      "seedNotes": ["Mimetic desire", "Desire as lack"],
+      "keyTerms": ["desire", "wanting", "imitation", "envy", "rivalry", "satisfaction", "arzu", "taklit"]
+    },
+    "cycles": {
+      "title": "Cycles",
+      "seedTags": ["cycles"],
+      "seedNotes": ["Long debt cycle", "Commodity supercycle", "Technology surges"],
+      "keyTerms": ["cycle", "debt", "credit", "boom", "bust", "bubble", "supply", "borç", "döngü"],
+      "subThemes": [
+        { "name": "Debt", "tags": ["cycles/debt"], "terms": ["debt", "credit", "deleveraging", "borç", "kredi"] },
+        { "name": "Commodities", "tags": ["cycles/commodities", "commodities"], "terms": ["commodity", "mine", "supply", "copper"] },
+        { "name": "Technology", "tags": ["cycles/technology"], "terms": ["technology", "installation", "deployment", "hype"] }
+      ]
+    }
+  }
+}

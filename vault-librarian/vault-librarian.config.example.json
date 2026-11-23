@@ -1,0 +1,56 @@
+{
+  "outputFolder": "Librarian",
+  "cacheDir": null,
+  "ignore": ["Templates/**", "Archive/Clippings/**", "*.excalidraw.md"],
+  "dailyNotesFolder": "Daily",
+  "questionTags": ["question", "todo", "open-question"],
+  "similarity": {
+    "textWeight": 0.7,
+    "tagWeight": 0.15,
+    "neighbourWeight": 0.15
+  },
+  "weekly": {
+    "oldAfterDays": 90,
+    "windowDays": 7,
+    "limit": 10,
+    "minScore": 0.12,
+    "maxPerNote": 2,
+    "repeatAfterWeeks": 6,
+    "includeDailyNotes": false,
+    "minWords": 30,
+    "unresolvedMinSources": 2,
+    "orphanLimit": 5,
+    "mentionLimit": 10
+  },
+  "packs": {
+    "maxSources": 25,
+    "excerptsPerSource": 3,
+    "maxExcerptChars": 700,
+    "minRelevance": 0.15
+  },
+  "topics": {
+    "desire": {
+      "title": "Desire",
+      "description": "Material for the essay on desire.",
+      "seedTags": ["desire"],
+      "seedNotes": [],
+      "keyTerms": ["desire", "wanting", "longing", "lack", "imitation", "envy", "rivalry", "satisfaction", "arzu", "taklit"],
+      "subThemes": [
+        { "name": "Borrowed wants", "tags": ["desire/mimetic"], "terms": ["imitation", "model", "rivalry", "envy"] },
+        { "name": "Lack and satisfaction", "tags": [], "terms": ["lack", "satisfaction", "adaptation", "pleasure"] }
+      ]
+    },
+    "cycles": {
+      "title": "Cycles",
+      "description": "Material for the essay on cycles: long debt, commodity and technology cycles.",
+      "seedTags": ["cycles"],
+      "seedNotes": [],
+      "keyTerms": ["cycle", "debt", "credit", "leverage", "boom", "bust", "bubble", "commodity", "technology", "döngü", "borç"],
+      "subThemes": [
+        { "name": "Debt", "tags": ["cycles/debt"], "terms": ["debt", "credit", "leverage", "deleveraging", "borç", "kredi"] },
+        { "name": "Commodities", "tags": ["cycles/commodities"], "terms": ["commodity", "supercycle", "mine", "oil", "supply"] },
+        { "name": "Technology", "tags": ["cycles/technology"], "terms": ["technology", "innovation", "installation", "deployment"] }
+      ]
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "vault-librarian",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server and CLI over an Obsidian vault: weekly link suggestions between old notes and verbatim source packs for essays.",
+  "type": "module",
+  "bin": {
+    "vault-librarian": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}
