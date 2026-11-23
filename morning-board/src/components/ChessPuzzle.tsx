@@ -7,7 +7,6 @@ import type { StepResult } from '../lib/store.ts'
 
 /** A different move still counts if it keeps within this many win-% points of the engine's. */
 const TOLERANCE = 6
-const CHECK_DEPTH = 14
 
 type Status = 'thinking' | 'checking' | 'wrong' | 'solved' | 'revealed'
 
@@ -73,7 +72,7 @@ export function ChessPuzzle({ puzzle, engine, isReview, onDone }: Props) {
     else {
       setStatus('checking')
       try {
-        const reply = await engine.evaluate(chess.fen(), CHECK_DEPTH)
+        const reply = await engine.evaluate(chess.fen(), engine.info.scanDepth + 2)
         const mine = 100 - winPercent(reply)
         if (puzzle.bestWin - mine <= TOLERANCE) accept()
         else reject(`${move.san} gives too much away. Look again.`)

@@ -2,15 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChessPuzzle } from './components/ChessPuzzle.tsx'
 import { CubeQuiz } from './components/CubeQuiz.tsx'
 import { SettingsForm } from './components/SettingsForm.tsx'
-import { findBlunders } from './lib/analysis.ts'
+import { DEFAULT_SCAN, findBlunders } from './lib/analysis.ts'
 import { CUBE_POSITIONS, cubeIndicesForDay } from './lib/cube.ts'
 import { boardDay, CITIES, cityClock, greeting, resolveCity, type City } from './lib/day.ts'
-import { getEngine as engine } from './lib/engine.ts'
+import { getEngine } from './lib/engine.ts'
 import { fetchRecentGames, PlayerNotFound } from './lib/games.ts'
 import {
-  bumpStreak, gradeCard, loadState, pickPuzzles, saveState,
+  bumpStreak, gradeCard, loadState, mergeStates, pickPuzzles, saveState,
   type PuzzleCard, type Session, type Settings, type State, type StepResult,
 } from './lib/store.ts'
+
+import { codeFromLocation, isSyncCode, newSyncCode, pull, push, syncAvailable } from './lib/sync.ts'
 
 type Prep = { status: 'idle' } | { status: 'working'; message: string } | { status: 'error'; message: string }
 
@@ -24,7 +26,18 @@ function useNow(everyMs: number): Date {
 }
 
 export default function App() {
-  const [state, setState] = useState<State>(loadState)
+  const [state, setState] = useState<State>(() => {
+    const saved = loadState()
+    // Opening a sync link switches this device onto that code.
+    const linked = syncAvailable ? codeFromLocation() : null
+    if (linked) history.replaceState(null, '', location.pathname)
+    return linked ? { ...saved, syncCode: linked } : saved
+  })
+  // Hold the first deal until the synced copy has been read, so two devices do not deal different boards.
+  const [syncReady, setSyncReady] = useState(() => !(syncAvailable && state.syncCode))
+  const [syncNote, setSyncNote] = useState('')
+  const syncing = useRef(false)
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [prep, setPrep] = useState<Prep>({ status: 'idle' })
   const [notice, setNotice] = useState('')
   const [editing, setEditing] = useState(false)
@@ -32,12 +45,51 @@ export default function App() {
   const running = useRef(false)
   const now = useNow(20000)
 
-  const update = useCallback((fn: (s: State) => State) => {
-    const next = fn(stateRef.current)
+  const apply = useCallback((next: State) => {
     stateRef.current = next
     saveState(next)
     setState(next)
   }, [])
+
+  const syncNow = useCallback(async () => {
+    const code = stateRef.current.syncCode
+    if (!syncAvailable || !code || syncing.current) return
+    syncing.current = true
+    try {
+      const remote = await pull(code)
+      const before = stateRef.current
+      const merged = remote ? mergeStates(before, remote) : before
+      if (merged !== before) apply(merged)
+      const { syncCode: _mine, ...mine } = merged
+      if (!remote || JSON.stringify(mine) !== JSON.stringify(remote)) await push(code, merged)
+      setSyncNote('Synced')
+    } catch (e) {
+      setSyncNote(e instanceof Error ? e.message : 'Sync failed')
+    } finally {
+      syncing.current = false
+    }
+  }, [apply])
+
+  const update = useCallback((fn: (s: State) => State) => {
+    apply(fn(stateRef.current))
+    if (syncAvailable && stateRef.current.syncCode) {
+      clearTimeout(syncTimer.current)
+      syncTimer.current = setTimeout(() => void syncNow(), 1500)
+    }
+  }, [apply, syncNow])
+
+  const engine = useCallback(() => getEngine(stateRef.current.settings.engine), [])
+
+  // Sync when the code changes (including on load) and whenever the app comes back to the foreground.
+  useEffect(() => {
+    if (!syncAvailable || !state.syncCode) return
+    let live = true
+    const giveUp = setTimeout(() => live && setSyncReady(true), 6000)
+    void syncNow().finally(() => { clearTimeout(giveUp); if (live) setSyncReady(true) })
+    const onShow = () => { if (document.visibilityState === 'visible') void syncNow() }
+    document.addEventListener('visibilitychange', onShow)
+    return () => { live = false; clearTimeout(giveUp); document.removeEventListener('visibilitychange', onShow) }
+  }, [state.syncCode, syncNow])
 
   const { settings, session } = state
   const city: City = resolveCity(settings.city, now)
@@ -57,12 +109,16 @@ export default function App() {
           setPrep({ status: 'working', message: 'Fetching your recent games…' })
           const games = await fetchRecentGames(settings.site, settings.username, settings.gamesToScan * (round + 1))
           const fresh = games.filter((g) => !stateRef.current.scannedGames.includes(g.id))
-          setPrep({ status: 'working', message: 'Waking up Stockfish…' })
+          setPrep({
+            status: 'working',
+            message: engine().info.build === 'full' ? 'Loading Stockfish 19 (a 94 MB download the first time)…' : 'Waking up Stockfish…',
+          })
           await engine().ready
+          const { scanDepth, verifyDepth } = engine().info
           for (let i = 0; i < fresh.length && !enough(); i++) {
             const g = fresh[i]
             setPrep({ status: 'working', message: `Looking for blunders: game ${i + 1} of ${fresh.length}, against ${g.opponent}` })
-            const found = await findBlunders(g, (fen, depth) => engine().evaluate(fen, depth))
+            const found = await findBlunders(g, (fen, depth) => engine().evaluate(fen, depth), { ...DEFAULT_SCAN, scanDepth, verifyDepth })
             const cards: PuzzleCard[] = found.map((p) => ({ ...p, box: 0, due: day, seen: 0 }))
             update((s) => ({ ...s, cards: [...s.cards, ...cards], scannedGames: [...s.scannedGames, g.id].slice(-400) }))
           }
@@ -89,17 +145,18 @@ export default function App() {
     } finally {
       running.current = false
     }
-  }, [update])
+  }, [engine, update])
 
   useEffect(() => {
-    if (settings.username && !ready && prep.status === 'idle') void prepare(day)
-  }, [settings.username, ready, day, prep.status, prepare])
+    if (settings.username && syncReady && !ready && prep.status === 'idle') void prepare(day)
+  }, [settings.username, syncReady, ready, day, prep.status, prepare])
 
   function saveSettings(next: Settings) {
     const samePlayer = next.site === settings.site && next.username.toLowerCase() === settings.username.toLowerCase()
     update((s) => ({
       ...s,
       settings: next,
+      settingsAt: Date.now(),
       cards: samePlayer ? s.cards : [],
       scannedGames: samePlayer ? s.scannedGames : [],
       // A different player or a different daily size means a new deal.
@@ -107,6 +164,14 @@ export default function App() {
     }))
     setEditing(false)
     setPrep({ status: 'idle' })
+  }
+
+  function setSyncCode(code: string | undefined) {
+    if (code && !isSyncCode(code)) return setSyncNote('That does not look like a sync code.')
+    setSyncNote('')
+    if (code) setSyncReady(false)
+    update((s) => ({ ...s, syncCode: code }))
+    if (code) setEditing(false)
   }
 
   function finishStep(key: string, result: StepResult) {
@@ -158,7 +223,17 @@ export default function App() {
         {notice && <p className="notice">{notice}</p>}
 
         {!settings.username || editing ? (
-          <SettingsForm settings={settings} first={!settings.username} onSave={saveSettings} onCancel={settings.username ? () => setEditing(false) : undefined} />
+          !syncReady ? (
+            <section className="step center"><div className="spinner" aria-hidden="true" /><p className="muted">Fetching your board from your other device…</p></section>
+          ) : (
+            <SettingsForm
+              settings={settings}
+              first={!settings.username}
+              onSave={saveSettings}
+              onCancel={settings.username ? () => setEditing(false) : undefined}
+              sync={syncAvailable ? { code: state.syncCode, note: syncNote, start: () => setSyncCode(newSyncCode()), join: setSyncCode, stop: () => setSyncCode(undefined) } : undefined}
+            />
+          )
         ) : prep.status === 'working' ? (
           <section className="step center">
             <div className="spinner" aria-hidden="true" />
@@ -173,7 +248,7 @@ export default function App() {
             </div>
           </section>
         ) : !ready ? null : current && card ? (
-          <ChessPuzzle key={current} puzzle={card} engine={engine()} isReview={card.seen > 0} onDone={(r) => finishStep(current, r)} />
+          <ChessPuzzle key={current} puzzle={card} engine={getEngine(settings.engine)} isReview={card.seen > 0} onDone={(r) => finishStep(current, r)} />
         ) : current?.startsWith('c:') ? (
           <CubeQuiz key={current} position={CUBE_POSITIONS[Number(current.slice(2))]} onDone={(r) => finishStep(current, r)} />
         ) : current ? (
@@ -201,7 +276,11 @@ export default function App() {
 
       {settings.username && !editing && prep.status !== 'working' && (
         <footer>
-          <span>{settings.username} on {settings.site === 'lichess' ? 'Lichess' : 'Chess.com'} · {state.cards.length} {state.cards.length === 1 ? "blunder" : "blunders"} collected</span>
+          <span>
+            {settings.username} on {settings.site === 'lichess' ? 'Lichess' : 'Chess.com'} · {state.cards.length} {state.cards.length === 1 ? 'blunder' : 'blunders'} collected
+            {' '}· {getEngine(settings.engine).info.label}
+            {state.syncCode && syncNote && <> · {syncNote}</>}
+          </span>
           <button className="link" onClick={() => setEditing(true)}>Settings</button>
         </footer>
       )}

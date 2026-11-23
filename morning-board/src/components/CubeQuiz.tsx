@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { pips } from '../lib/bearoff.ts'
 import { choiceEquity, correctChoice, cubeChoices, type CubeChoice, type CubePosition } from '../lib/cube.ts'
 import type { StepResult } from '../lib/store.ts'
 import { BackgammonBoard } from './BackgammonBoard.tsx'
 
 const eq = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(3)}`
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+const pips = (side: number[]) => side.reduce((acc, n, i) => acc + n * (i + 1), 0)
 
 export function CubeQuiz({ position: p, onDone }: { position: CubePosition; onDone: (r: StepResult) => void }) {
   const [picked, setPicked] = useState<CubeChoice | null>(null)
@@ -15,6 +15,8 @@ export function CubeQuiz({ position: p, onDone }: { position: CubePosition; onDo
   const held = p.cube === 'roller' // the roller already owns the cube at 2
   const correct = correctChoice(p)
   const yourWin = asking ? p.win : 1 - p.win
+  const yourGammon = (asking ? p.gammon : p.loseGammon) ?? 0
+  const theirGammon = (asking ? p.loseGammon : p.gammon) ?? 0
   const choices = cubeChoices(p)
   const cost = picked ? choiceEquity(p, correct) - choiceEquity(p, picked) : 0
 
@@ -31,7 +33,8 @@ export function CubeQuiz({ position: p, onDone }: { position: CubePosition; onDo
           : `Your opponent is on roll and ${held ? 'redoubles to 4' : 'doubles to 2'}. Take or pass?`}
       </h2>
       <p className="context">
-        Money game, bearoff. You are the light checkers at the bottom: {pips(you)} pips against {pips(them)}.
+        Money game, gammons count (no Jacoby rule). {p.source === 'exact' ? 'A bearoff' : p.race ? 'A race' : 'A contact position'}:
+        you are the light checkers, bearing off at the bottom right, with {pips(you)} pips against {pips(them)}.
       </p>
 
       <div className="board"><BackgammonBoard you={you} them={them} cube={cube} /></div>
@@ -55,16 +58,24 @@ export function CubeQuiz({ position: p, onDone }: { position: CubePosition; onDo
               <strong>
                 {picked === correct
                   ? 'Right.'
-                  : cost < 0.0005
-                    ? `Right to double, but your opponent should ${correct === 'double-take' ? 'take' : 'pass'}.`
-                    : `Not quite: that costs ${cost.toFixed(3)} of the stake.`}
+                  : cost >= 0.0005
+                    ? `Not quite: that costs ${cost.toFixed(3)} of the stake.`
+                    : correct === 'too-good'
+                      ? 'Right not to double, but because you are too good: play on for the gammon.'
+                      : correct === 'no-double'
+                        ? 'Right not to double, but because you are not strong enough yet.'
+                        : `Right to double, but your opponent should ${correct === 'double-take' ? 'take' : 'pass'}.`}
               </strong>{' '}
-              You win this race {pct(yourWin)} of the time with the cube out of play.
+              {p.source === 'exact'
+                ? `You win this race ${pct(yourWin)} of the time with the cube out of play.`
+                : `You win ${pct(yourWin)} of games, ${pct(yourGammon)} of all games with a gammon, and lose a gammon in ${pct(theirGammon)}.`}
             </p>
             <p className="muted">
-              Equities are yours, per unit of the cube before the decision, with perfect play from both sides
-              (computed exactly, not estimated). {asking
-                ? `Rolling on is worth ${eq(p.noDouble)}; a doubled game would be worth ${eq(p.doubleTake)}, so your opponent ${p.doubleTake > 1 ? 'does better to pass and you collect 1' : 'takes'}.`
+              Equities are yours, per unit of the cube before the decision. {p.source === 'exact'
+                ? 'They are computed exactly, with perfect play from both sides.'
+                : 'They are GNU Backgammon’s 2-ply evaluation, so treat the third decimal as approximate.'}{' '}
+              {asking
+                ? `Rolling on is worth ${eq(p.noDouble)}; a doubled game would be worth ${eq(p.doubleTake)}, so your opponent ${p.doubleTake > 1 ? 'does better to pass and you would collect 1' : 'takes'}.`
                 : `Taking is worth ${eq(-p.doubleTake)} against −1.000 for passing.`}
             </p>
           </div>

@@ -1,6 +1,7 @@
 import type { Puzzle } from './analysis.ts'
 import type { Site } from './games.ts'
 import { addDays, type CityChoice } from './day.ts'
+import type { EngineChoice } from './engine.ts'
 
 export interface Settings {
   site: Site
@@ -9,9 +10,10 @@ export interface Settings {
   puzzlesPerDay: number
   cubesPerDay: number
   gamesToScan: number
+  engine: EngineChoice
 }
 
-export const DEFAULT_SETTINGS: Settings = { site: 'lichess', username: '', city: 'auto', puzzlesPerDay: 4, cubesPerDay: 3, gamesToScan: 12 }
+export const DEFAULT_SETTINGS: Settings = { site: 'lichess', username: '', city: 'auto', puzzlesPerDay: 4, cubesPerDay: 3, gamesToScan: 12, engine: 'auto' }
 
 /** A puzzle plus its review schedule (a small Leitner box system). */
 export interface PuzzleCard extends Puzzle {
@@ -37,6 +39,10 @@ export interface State {
   scannedGames: string[]
   session?: Session
   streak: { count: number; lastDay: string | null }
+  /** When the settings were last changed (ms), so the newer device wins a sync. */
+  settingsAt?: number
+  /** Devices sharing this code share one board. Never uploaded. */
+  syncCode?: string
 }
 
 const KEY = 'morning-board:v1'
@@ -83,4 +89,46 @@ export function gradeCard(card: PuzzleCard, result: StepResult, day: string): Pu
 export function bumpStreak(streak: State['streak'], day: string): State['streak'] {
   if (streak.lastDay === day) return streak
   return { count: streak.lastDay === addDays(day, -1) ? streak.count + 1 : 1, lastDay: day }
+}
+
+const samePlayer = (a: Settings, b: Settings) => a.site === b.site && a.username.toLowerCase() === b.username.toLowerCase()
+
+function mergeSessions(a?: Session, b?: Session): Session | undefined {
+  if (!a || !b) return a ?? b
+  if (a.day !== b.day) return a.day > b.day ? a : b
+  if ((a.round ?? 0) !== (b.round ?? 0)) return (a.round ?? 0) > (b.round ?? 0) ? a : b
+  const sameDeal = a.puzzleIds.join() === b.puzzleIds.join() && a.cubeIds.join() === b.cubeIds.join()
+  if (sameDeal) return { ...a, results: { ...b.results, ...a.results } }
+  // Two devices dealt separately before they synced: keep the one further along (the remote on a tie, so both converge).
+  return Object.keys(a.results).length > Object.keys(b.results).length ? a : b
+}
+
+/**
+ * Combine this device's state with the synced copy. Progress only ever moves
+ * forward: a card keeps whichever side has reviewed it more, the newer session
+ * and streak win, and settings follow the device that changed them last.
+ */
+export function mergeStates(local: State, remote: Omit<State, 'syncCode'>): State {
+  const remoteNewer = (remote.settingsAt ?? 0) > (local.settingsAt ?? 0)
+  if (!samePlayer(local.settings, remote.settings)) {
+    // Different players do not mix: the side that changed player most recently wins outright.
+    return remoteNewer || !local.settings.username ? { ...remote, syncCode: local.syncCode } : local
+  }
+  const cards = new Map(remote.cards.map((c) => [c.id, c]))
+  for (const c of local.cards) {
+    const other = cards.get(c.id)
+    if (!other || c.seen > other.seen || (c.seen === other.seen && c.due >= other.due)) cards.set(c.id, c)
+  }
+  const a = local.streak
+  const b = remote.streak
+  const streak = (a.lastDay ?? '') === (b.lastDay ?? '') ? (a.count >= b.count ? a : b) : (a.lastDay ?? '') > (b.lastDay ?? '') ? a : b
+  return {
+    settings: remoteNewer ? remote.settings : local.settings,
+    settingsAt: Math.max(local.settingsAt ?? 0, remote.settingsAt ?? 0),
+    cards: [...cards.values()],
+    scannedGames: [...new Set([...remote.scannedGames, ...local.scannedGames])].slice(-400),
+    session: mergeSessions(local.session, remote.session),
+    streak,
+    syncCode: local.syncCode,
+  }
 }

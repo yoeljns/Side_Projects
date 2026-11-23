@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { Chess } from 'chess.js'
 import { findBlunders, lineToSan, winPercent } from './analysis.ts'
 import { analyseCube } from './bearoff.ts'
-import { choiceEquity, correctChoice, CUBE_POSITIONS, cubeChoices, cubeIndicesForDay } from './cube.ts'
+import { BEAROFF_POSITIONS, choiceEquity, correctChoice, CUBE_POSITIONS, cubeChoices, cubeIndicesForDay, MIDGAME_POSITIONS } from './cube.ts'
 import { boardDay, cityClock, detectCity } from './day.ts'
 import type { Evaluation } from './engine.ts'
 import { parseChessCom, parseLichess, type Game } from './games.ts'
-import { bumpStreak, gradeCard, pickPuzzles, type PuzzleCard } from './store.ts'
+import { bumpStreak, DEFAULT_SETTINGS, gradeCard, mergeStates, pickPuzzles, type PuzzleCard, type State } from './store.ts'
 
 describe('bearoff cube equities', () => {
   it('last-roll position with 75% wins is exactly the take/pass borderline', () => {
@@ -33,14 +33,36 @@ describe('bearoff cube equities', () => {
     expect(analyseCube([0, 1, 0, 0, 1, 0], [1, 0, 0, 0, 0, 0], 'centered').win).toBeCloseTo(19 / 36, 10)
   })
   it('shipped positions agree with the engine and have a clear best choice', () => {
-    expect(CUBE_POSITIONS.length).toBeGreaterThan(150)
-    for (const p of CUBE_POSITIONS.filter((_, i) => i % 9 === 0)) {
-      const a = analyseCube(p.roller, p.opponent, p.cube)
+    expect(BEAROFF_POSITIONS.length).toBeGreaterThan(150)
+    for (const p of BEAROFF_POSITIONS.filter((_, i) => i % 9 === 0)) {
+      const a = analyseCube(p.roller.slice(0, 6), p.opponent.slice(0, 6), p.cube)
       expect(a.action).toBe(p.action)
       expect(a.noDouble).toBeCloseTo(p.noDouble, 3)
       const best = correctChoice(p)
       for (const c of cubeChoices(p)) expect(choiceEquity(p, c.id)).toBeLessThanOrEqual(choiceEquity(p, best) + 1e-9)
     }
+  })
+  it('middle-game positions are legal and their answer is the best-scoring choice', () => {
+    expect(MIDGAME_POSITIONS.length).toBeGreaterThan(150)
+    for (const p of MIDGAME_POSITIONS) {
+      for (const side of [p.roller, p.opponent]) {
+        expect(side).toHaveLength(25)
+        const total = side.reduce((a, n) => a + n, 0)
+        expect(total).toBeGreaterThan(0)
+        expect(total).toBeLessThanOrEqual(15)
+      }
+      // no point holds checkers of both colours
+      for (let i = 0; i < 24; i++) expect(p.roller[i] * p.opponent[23 - i]).toBe(0)
+      const best = correctChoice(p)
+      const choices = cubeChoices(p)
+      expect(choices.map((c) => c.id)).toContain(best)
+      for (const c of choices) expect(choiceEquity(p, c.id)).toBeLessThanOrEqual(choiceEquity(p, best) + 1e-9)
+    }
+  })
+  it('mixes middle-game and bearoff positions each day', () => {
+    const ids = cubeIndicesForDay('2026-11-23', 3)
+    expect(ids.filter((i) => i >= BEAROFF_POSITIONS.length)).toHaveLength(2)
+    expect(CUBE_POSITIONS[ids[0]].source).toBe('gnubg')
   })
   it('deals the same distinct positions for a given day', () => {
     const a = cubeIndicesForDay('2026-11-23', 3)
@@ -143,5 +165,46 @@ describe('review schedule', () => {
   it('counts consecutive mornings', () => {
     expect(bumpStreak({ count: 3, lastDay: '2026-11-22' }, '2026-11-23').count).toBe(4)
     expect(bumpStreak({ count: 3, lastDay: '2026-11-20' }, '2026-11-23').count).toBe(1)
+  })
+})
+
+describe('sync merge', () => {
+  const card = (id: string, over: Partial<PuzzleCard> = {}): PuzzleCard =>
+    ({ id, box: 0, due: '2026-11-23', seen: 0, playedAt: 0, ...over }) as PuzzleCard
+  const me = { ...DEFAULT_SETTINGS, username: 'me' }
+  const base = (over: Partial<State> = {}): State =>
+    ({ settings: me, cards: [], scannedGames: [], streak: { count: 0, lastDay: null }, ...over })
+
+  it('keeps the more-reviewed copy of each card and the union of everything else', () => {
+    const phone = base({ cards: [card('a', { seen: 2, due: '2026-11-30' }), card('b')], scannedGames: ['g1'], syncCode: 'code' })
+    const laptop = base({ cards: [card('a', { seen: 1 }), card('c')], scannedGames: ['g2'], streak: { count: 4, lastDay: '2026-11-23' } })
+    const m = mergeStates(phone, laptop)
+    expect(m.cards.map((c) => c.id).sort()).toEqual(['a', 'b', 'c'])
+    expect(m.cards.find((c) => c.id === 'a')!.seen).toBe(2)
+    expect(m.scannedGames.sort()).toEqual(['g1', 'g2'])
+    expect(m.streak.count).toBe(4)
+    expect(m.syncCode).toBe('code')
+    // merging is symmetric in content and stable once both sides agree
+    const { syncCode: _c, ...remote } = m
+    expect(mergeStates(m, remote)).toEqual(m)
+  })
+  it('combines results of the same deal and prefers the newer day', () => {
+    const deal = { day: '2026-11-23', puzzleIds: ['a'], cubeIds: [1], results: {} }
+    const m = mergeStates(
+      base({ session: { ...deal, results: { 'p:a': 'solved' } } }),
+      base({ session: { ...deal, results: { 'c:1': 'missed' } } }),
+    )
+    expect(m.session!.results).toEqual({ 'p:a': 'solved', 'c:1': 'missed' })
+    const newer = mergeStates(base({ session: deal }), base({ session: { ...deal, day: '2026-11-24' } }))
+    expect(newer.session!.day).toBe('2026-11-24')
+  })
+  it('a fresh device adopts the synced player; settings follow the latest change', () => {
+    const fresh: State = { settings: DEFAULT_SETTINGS, cards: [], scannedGames: [], streak: { count: 0, lastDay: null }, syncCode: 'code' }
+    const m = mergeStates(fresh, base({ cards: [card('a')], settingsAt: 5 }))
+    expect(m.settings.username).toBe('me')
+    expect(m.cards).toHaveLength(1)
+    expect(m.syncCode).toBe('code')
+    const changed = mergeStates(base({ settingsAt: 9, settings: { ...me, puzzlesPerDay: 8 } }), base({ settingsAt: 5 }))
+    expect(changed.settings.puzzlesPerDay).toBe(8)
   })
 })

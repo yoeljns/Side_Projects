@@ -1,15 +1,28 @@
 import { useState } from 'react'
 import type { Settings } from '../lib/store.ts'
+import { syncLink } from '../lib/sync.ts'
+
+export interface SyncControls {
+  code?: string
+  note: string
+  start: () => void
+  join: (code: string) => void
+  stop: () => void
+}
 
 interface Props {
   settings: Settings
   first: boolean
   onSave: (s: Settings) => void
   onCancel?: () => void
+  /** Present only when a sync backend is configured. */
+  sync?: SyncControls
 }
 
-export function SettingsForm({ settings, first, onSave, onCancel }: Props) {
+export function SettingsForm({ settings, first, onSave, onCancel, sync }: Props) {
   const [draft, setDraft] = useState(settings)
+  const [joinCode, setJoinCode] = useState('')
+  const [copied, setCopied] = useState(false)
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setDraft((d) => ({ ...d, [k]: v }))
 
   return (
@@ -72,6 +85,53 @@ export function SettingsForm({ settings, first, onSave, onCancel }: Props) {
           </select>
         </label>
       </div>
+      <div className="row">
+        <label className="grow">
+          Chess engine
+          <select value={draft.engine} onChange={(e) => set('engine', e.target.value as Settings['engine'])}>
+            <option value="auto">Automatic: full Stockfish 19 on a computer, lite on a phone</option>
+            <option value="full">Full Stockfish 19 (94 MB download, strongest)</option>
+            <option value="lite">Stockfish 19 lite (small and quick)</option>
+          </select>
+        </label>
+      </div>
+      {sync && (
+        <fieldset className="sync">
+          <legend>Sync between devices</legend>
+          {sync.code ? (
+            <>
+              <p className="context">
+                This device shares its board with every device that uses this code. Open the link on your other
+                device, or paste the code into its settings.
+              </p>
+              <code data-testid="sync-code">{sync.code}</code>
+              <div className="actions start">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => void navigator.clipboard.writeText(syncLink(sync.code!)).then(() => setCopied(true))}
+                >
+                  {copied ? 'Link copied' : 'Copy link'}
+                </button>
+                <button type="button" className="ghost" onClick={sync.stop}>Stop syncing here</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="context">Keep the same puzzles, reviews and streak on your phone and laptop. No account needed.</p>
+              <div className="row">
+                <button type="button" className="ghost" onClick={sync.start} disabled={first}>Start syncing this device</button>
+                <label className="grow">
+                  Or paste a code from another device
+                  <input value={joinCode} onChange={(e) => setJoinCode(e.target.value.trim().toLowerCase())} placeholder="xxxxxx-xxxxxx-xxxxxx-xxxxxx" autoCapitalize="none" spellCheck={false} />
+                </label>
+                <button type="button" className="ghost" onClick={() => sync.join(joinCode)} disabled={!joinCode}>Join</button>
+              </div>
+            </>
+          )}
+          {sync.note && <p className="muted">{sync.note}</p>}
+        </fieldset>
+      )}
       <div className="actions">
         {onCancel && <button type="button" className="ghost" onClick={onCancel}>Cancel</button>}
         <button className="primary">{first ? 'Deal my first board' : 'Save'}</button>
