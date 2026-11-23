@@ -13,6 +13,9 @@ export interface Game {
   initialFen?: string
 }
 
+/** The username does not exist on the chosen site: retrying will not help. */
+export class PlayerNotFound extends Error {}
+
 const same = (a: string | undefined, b: string) => (a ?? '').toLowerCase() === b.toLowerCase()
 
 interface LichessGame {
@@ -90,12 +93,12 @@ export async function fetchRecentGames(site: Site, username: string, max: number
     const res = await fetch(`https://lichess.org/api/games/user/${user}?max=${max}&perfType=bullet,blitz,rapid,classical,correspondence`, {
       headers: { Accept: 'application/x-ndjson' },
     })
-    if (res.status === 404) throw new Error(`No Lichess player called “${username}”.`)
+    if (res.status === 404) throw new PlayerNotFound(`No Lichess player called “${username}”.`)
     if (!res.ok) throw new Error(`Lichess answered ${res.status}. Try again in a minute.`)
     return parseLichess(await res.text(), username)
   }
   const archives = await fetch(`https://api.chess.com/pub/player/${user.toLowerCase()}/games/archives`)
-  if (archives.status === 404) throw new Error(`No Chess.com player called “${username}”.`)
+  if (archives.status === 404) throw new PlayerNotFound(`No Chess.com player called “${username}”.`)
   if (!archives.ok) throw new Error(`Chess.com answered ${archives.status}. Try again in a minute.`)
   const months = ((await archives.json()) as { archives: string[] }).archives.reverse()
   const games: Game[] = []

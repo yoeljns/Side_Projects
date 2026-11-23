@@ -24,6 +24,8 @@ export type StepResult = 'solved' | 'missed'
 
 export interface Session {
   day: string
+  /** 0 for the morning's board, 1+ for extra rounds dealt on request. */
+  round?: number
   puzzleIds: string[]
   cubeIds: number[]
   results: Record<string, StepResult> // keyed "p:<id>" or "c:<index>"

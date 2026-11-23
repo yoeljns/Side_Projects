@@ -16,10 +16,13 @@ Create one Vercel project per folder, all pointing at this repository:
 2. Set **Root Directory** to the project folder (for example `morning-board`).
 3. Leave the framework preset on Vite; the default build command and output directory work.
 
-Repeat for each folder. To stop a push that only touches one project from rebuilding the others, set each
-project's Ignored Build Step to `git diff --quiet HEAD^ HEAD -- .`
+Repeat for each folder. Each project's `vercel.json` skips the build when a push did not touch that folder,
+so changing one project does not redeploy the others.
+
+GitHub Actions runs every project's tests and build on each push (`.github/workflows/ci.yml`).
 
 ## Adding a project
 
-Create a new top-level folder with its own `package.json`, add a row to the table above, and create a
-Vercel project with that folder as its Root Directory.
+Create a new top-level folder with its own `package.json`, add a row to the table above, add the folder to
+the matrix in `.github/workflows/ci.yml`, copy a `vercel.json` into it, and create a Vercel project with
+that folder as its Root Directory.

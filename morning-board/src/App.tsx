@@ -6,7 +6,7 @@ import { findBlunders } from './lib/analysis.ts'
 import { CUBE_POSITIONS, cubeIndicesForDay } from './lib/cube.ts'
 import { boardDay, CITIES, cityClock, greeting, resolveCity, type City } from './lib/day.ts'
 import { getEngine as engine } from './lib/engine.ts'
-import { fetchRecentGames } from './lib/games.ts'
+import { fetchRecentGames, PlayerNotFound } from './lib/games.ts'
 import {
   bumpStreak, gradeCard, loadState, pickPuzzles, saveState,
   type PuzzleCard, type Session, type Settings, type State, type StepResult,
@@ -45,7 +45,7 @@ export default function App() {
   const other: City = city === 'london' ? 'istanbul' : 'london'
   const ready = !!session && session.day === day
 
-  const prepare = useCallback(async (day: string) => {
+  const prepare = useCallback(async (day: string, round = 0) => {
     if (running.current) return
     running.current = true
     setNotice('')
@@ -55,7 +55,7 @@ export default function App() {
       if (!enough()) {
         try {
           setPrep({ status: 'working', message: 'Fetching your recent games…' })
-          const games = await fetchRecentGames(settings.site, settings.username, settings.gamesToScan)
+          const games = await fetchRecentGames(settings.site, settings.username, settings.gamesToScan * (round + 1))
           const fresh = games.filter((g) => !stateRef.current.scannedGames.includes(g.id))
           setPrep({ status: 'working', message: 'Waking up Stockfish…' })
           await engine().ready
@@ -68,8 +68,9 @@ export default function App() {
           }
         } catch (e) {
           const message = e instanceof Error ? e.message : 'Something went wrong reading your games.'
-          // With nothing at all to show, stop here; otherwise carry on with what is already saved.
-          if (pickPuzzles(stateRef.current.cards, day, 1).length === 0 && settings.cubesPerDay === 0) {
+          // A wrong username, or nothing at all to show: stop here. Otherwise carry on with what is already saved.
+          const nothing = pickPuzzles(stateRef.current.cards, day, 1).length === 0 && settings.cubesPerDay === 0
+          if (e instanceof PlayerNotFound || nothing) {
             setPrep({ status: 'error', message })
             return
           }
@@ -78,8 +79,9 @@ export default function App() {
       }
       const s: Session = {
         day,
+        round,
         puzzleIds: pickPuzzles(stateRef.current.cards, day, settings.puzzlesPerDay),
-        cubeIds: cubeIndicesForDay(day, settings.cubesPerDay),
+        cubeIds: cubeIndicesForDay(round ? `${day}/round-${round}` : day, settings.cubesPerDay),
         results: {},
       }
       update((st) => ({ ...st, session: s }))
@@ -179,17 +181,20 @@ export default function App() {
           <section className="step center"><button className="primary" onClick={() => finishStep(current, 'missed')}>Skip</button></section>
         ) : (
           <section className="step center done">
-            <h2>That's the board for today.</h2>
+            <h2>{session.round ? 'Extra round done.' : "That's the board for today."}</h2>
             {session.puzzleIds.length > 0 ? (
               <p>Chess: {solved('p:')} of {session.puzzleIds.length} found first time.</p>
             ) : (
-              <p>No blunders worth a puzzle in your last {settings.gamesToScan} games. Play a few more and they will turn up here.</p>
+              <p>No blunders worth a puzzle in your last {settings.gamesToScan * ((session.round ?? 0) + 1)} games. Play a few more and they will turn up here.</p>
             )}
             {session.cubeIds.length > 0 && <p>Cube: {solved('c:')} of {session.cubeIds.length} right.</p>}
             <p className="muted">
               Missed positions come back tomorrow; solved ones return after a few days. The next board is dealt at
               04:00 {CITIES[city].label} time.
             </p>
+            <div className="actions">
+              <button className="ghost" onClick={() => void prepare(day, (session.round ?? 0) + 1)}>Deal another round</button>
+            </div>
           </section>
         )}
       </main>

@@ -11,6 +11,9 @@ A short daily board for the chess slot of a morning routine:
 - **London and Istanbul mornings.** The board follows the city you wake up in (detected from the device
   time zone, or fixed in Settings), shows both clocks, and deals a new board at 04:00 local time.
 
+When the board is done you can deal another round, which reaches further back through your games. On a
+phone, "Add to Home Screen" installs it as an app.
+
 There is no backend and no account. Progress lives in the browser's local storage, so each device keeps
 its own puzzle pool and streak.
 
