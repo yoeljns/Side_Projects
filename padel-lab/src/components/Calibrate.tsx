@@ -6,7 +6,7 @@ import { homography, isConvexQuad, project } from '../lib/homography';
 const GRAB_PX = 28;
 
 /** Draws the tapped points and, once there are four, the court they imply. */
-function draw(canvas: HTMLCanvasElement, pts: Pt[], court: Pt[]): void {
+function draw(canvas: HTMLCanvasElement, pts: Pt[], court: Pt[], video: HTMLVideoElement, active: number | null): void {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (canvas.width !== Math.round(w * dpr)) canvas.width = Math.round(w * dpr);
@@ -45,6 +45,7 @@ function draw(canvas: HTMLCanvasElement, pts: Pt[], court: Pt[]): void {
   }
 
   px.forEach((p, i) => {
+    if (i === active) return; // the loupe shows this one
     ctx.beginPath();
     ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(11,11,11,0.75)';
@@ -61,6 +62,38 @@ function draw(canvas: HTMLCanvasElement, pts: Pt[], court: Pt[]): void {
     ctx.textBaseline = 'middle';
     ctx.fillText(String(i + 1), p.x, p.y - 22);
   });
+
+  // Loupe: a magnified view around the point being placed, clear of the finger.
+  if (active !== null && px[active] && video.videoWidth) {
+    const p = px[active];
+    const R = Math.min(70, w * 0.16), ZOOM = 4;
+    const cx = Math.min(w - R - 4, Math.max(R + 4, p.x));
+    const cy = p.y - R - 36 > 4 ? p.y - R - 36 : p.y + R + 36;
+    const srcW = ((2 * R) / ZOOM) * (video.videoWidth / w), srcH = ((2 * R) / ZOOM) * (video.videoHeight / h);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+    ctx.drawImage(
+      video,
+      pts[active].x * video.videoWidth - srcW / 2, pts[active].y * video.videoHeight - srcH / 2, srcW, srcH,
+      cx - R, cy - R, 2 * R, 2 * R,
+    );
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - R, cy); ctx.lineTo(cx - 6, cy); ctx.moveTo(cx + 6, cy); ctx.lineTo(cx + R, cy);
+    ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy - 6); ctx.moveTo(cx, cy + 6); ctx.lineTo(cx, cy + R);
+    ctx.stroke();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
+  }
 }
 
 /** Little court diagram showing where the four reference points sit. */
@@ -99,10 +132,11 @@ export function Calibrate({
   const [pts, setPts] = useState<Pt[]>([]);
   const [time, setTime] = useState(0);
   const drag = useRef<number | null>(null);
+  const [active, setActive] = useState<number | null>(null);
   const preset = presetById(presetId);
   const valid = pts.length === 4 && isConvexQuad(pts);
 
-  const redraw = useCallback(() => draw(overlay, pts, preset.points), [overlay, pts, preset]);
+  const redraw = useCallback(() => draw(overlay, pts, preset.points, video, active), [overlay, pts, preset, video, active]);
   useEffect(() => {
     redraw();
     const ro = new ResizeObserver(redraw);
@@ -139,6 +173,7 @@ export function Calibrate({
         drag.current = pts.length;
         setPts([...pts, p]);
       } else return;
+      setActive(drag.current);
       overlay.setPointerCapture(e.pointerId);
       e.preventDefault();
     };
@@ -148,7 +183,7 @@ export function Calibrate({
       const p = at(e);
       setPts((cur) => cur.map((q, k) => (k === i ? p : q)));
     };
-    const up = () => (drag.current = null);
+    const up = () => { drag.current = null; setActive(null); };
     overlay.addEventListener('pointerdown', down);
     overlay.addEventListener('pointermove', move);
     overlay.addEventListener('pointerup', up);
@@ -185,8 +220,8 @@ export function Calibrate({
         <div>
           <h2>Mark the court</h2>
           <p className="muted">
-            Tap four points on the floor so positions can be mapped onto the court. Drag a point to fine-tune it; the blue
-            lines should sit on the painted lines.
+            Press and hold on each of four floor points: a magnifier appears so you can slide onto the exact spot. Drag
+            a point again to fine-tune. The blue lines should end up on the painted lines.
           </p>
           <label className="field">
             <span>Reference points</span>

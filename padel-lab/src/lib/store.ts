@@ -1,6 +1,7 @@
 // The match log lives in this browser's localStorage. No account, no upload.
 import type { Zone } from './court';
 import type { RallySummary } from './hits';
+import type { TeamStats } from './stats';
 
 export type SavedPlayer = {
   slot: number;
@@ -8,6 +9,13 @@ export type SavedPlayer = {
   zonePct: Record<Zone, number>;
   distanceM: number;
   heat: number[];
+  /** m/s */
+  topSpeed: number;
+  avgSpeed: number;
+  /** Share of time on the player's own left side, 0..1. */
+  leftPct: number;
+  netApproaches: number;
+  avgNetDist: number;
 };
 
 export type Match = {
@@ -29,10 +37,11 @@ export type Match = {
   me: number | null;
   meThumb: string | null;
   players: SavedPlayer[];
+  teams: { near: TeamStats; far: TeamStats } | null;
   rallies: RallySummary | null;
 };
 
-const KEY = 'padel-lab:matches:v1';
+const KEY = 'padel-lab:matches:v2';
 
 export function loadMatches(): Match[] {
   try {

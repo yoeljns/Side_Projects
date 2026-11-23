@@ -67,6 +67,7 @@ export class EnvelopeBuilder {
 
 export type AudioTap = {
   ctx: AudioContext;
+  out: GainNode;
   onBatch: ((b: Batch) => void) | null;
 };
 
@@ -90,7 +91,7 @@ export async function attachAudio(video: HTMLVideoElement): Promise<AudioTap | n
     const mute = ctx.createGain();
     mute.gain.value = 0;
     src.connect(node).connect(mute).connect(ctx.destination);
-    const tap: AudioTap = { ctx, onBatch: null };
+    const tap: AudioTap = { ctx, out: mute, onBatch: null };
     node.port.onmessage = (e) => tap.onBatch?.(e.data as Batch);
     await ctx.resume().catch(() => {});
     taps.set(video, tap);
@@ -99,4 +100,10 @@ export async function attachAudio(video: HTMLVideoElement): Promise<AudioTap | n
     console.warn('Audio capture unavailable; rallies will not be detected.', e);
     return null;
   }
+}
+
+/** Silence the speakers during analysis; restore them for watching back. */
+export function setAudible(video: HTMLVideoElement, on: boolean): void {
+  const tap = taps.get(video);
+  if (tap) tap.out.gain.value = on ? 1 : 0;
 }

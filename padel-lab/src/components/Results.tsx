@@ -1,32 +1,34 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AnalysisResult } from '../lib/analyzer';
-import { fmtClock, isoDay } from '../lib/format';
-import {
-  DEFAULT_HIT_OPTIONS,
-  DEFAULT_SENSITIVITY,
-  detectHits,
-  groupRallies,
-  sensitivityToDb,
-  summariseRallies,
-} from '../lib/hits';
-import { computeStats } from '../lib/stats';
-import { newId, type Match, type SavedPlayer } from '../lib/store';
+import { fmtClock, fmtSec, isoDay } from '../lib/format';
+import { autoThresholdDb, dbToSensitivity, findPeaks, groupRallies, selectHits, sensitivityToDb, summariseRallies } from '../lib/hits';
+import { buildInsights } from '../lib/insights';
+import { computeStats, computeTeam, refineTrack } from '../lib/stats';
+import { loadMatches, myStats, newId, type Match, type SavedPlayer } from '../lib/store';
 import { SLOTS, SLOT_NAME, slotTeam } from '../lib/tracker';
 import { StatsView } from './StatsView';
+import { Tactical } from './Tactical';
 
 export function Results({
   result,
   file,
+  video,
+  sideHost,
   onSave,
   onDiscard,
 }: {
   result: AnalysisResult;
   file: File;
+  video: HTMLVideoElement;
+  /** Element next to the video where the top-down view is mounted. */
+  sideHost: HTMLElement | null;
   onSave: (m: Match) => void;
   onDiscard: () => void;
 }) {
-  const [sensitivity, setSensitivity] = useState(DEFAULT_SENSITIVITY);
+  const [manual, setManual] = useState<number | null>(null);
   const [me, setMe] = useState<number | null>(null);
+  const [playhead, setPlayhead] = useState(0);
   const [form, setForm] = useState({
     date: isoDay(new Date(file.lastModified || Date.now())),
     level: '',
@@ -37,26 +39,74 @@ export function Results({
     notes: '',
   });
 
-  const rallies = useMemo(() => {
-    if (!result.envelope) return null;
-    const hits = detectHits(result.envelope, { ...DEFAULT_HIT_OPTIONS, thresholdDb: sensitivityToDb(sensitivity) });
-    return groupRallies(hits);
-  }, [result.envelope, sensitivity]);
-  const summary = useMemo(() => (rallies ? summariseRallies(rallies) : null), [rallies]);
+  useEffect(() => {
+    const on = () => setPlayhead(video.currentTime);
+    video.addEventListener('timeupdate', on);
+    video.addEventListener('seeked', on);
+    return () => {
+      video.removeEventListener('timeupdate', on);
+      video.removeEventListener('seeked', on);
+    };
+  }, [video]);
+  const seek = (t: number) => {
+    video.currentTime = t;
+    void video.play().catch(() => {});
+    video.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  const peaks = useMemo(() => (result.envelope ? findPeaks(result.envelope) : null), [result.envelope]);
+  const autoDb = useMemo(() => (peaks ? autoThresholdDb(peaks) : 0), [peaks]);
+  const rallies = useMemo(
+    () => (peaks ? groupRallies(selectHits(peaks, manual === null ? autoDb : sensitivityToDb(manual))) : null),
+    [peaks, autoDb, manual],
+  );
+  const summary = useMemo(() => (rallies ? summariseRallies(rallies, result.analysedSec) : null), [rallies, result.analysedSec]);
 
   // "In play only" needs enough rallies to be meaningful.
   const canFilter = !!rallies && rallies.length >= 3;
   const [wantInPlay, setWantInPlay] = useState(true);
   const inPlayOnly = canFilter && wantInPlay;
 
+  const tracks = useMemo(() => result.samples.map(refineTrack), [result.samples]);
   const players: SavedPlayer[] = useMemo(
     () =>
       SLOTS.map((slot) => {
-        const s = computeStats(result.samples[slot], inPlayOnly ? rallies : null);
-        return { slot, seenSec: s.seenSec, zonePct: s.zonePct, distanceM: Math.round(s.distanceM), heat: s.heat };
+        const s = computeStats(tracks[slot], inPlayOnly ? rallies : null, slot < 2);
+        return {
+          slot,
+          seenSec: Math.round(s.seenSec),
+          zonePct: s.zonePct,
+          distanceM: Math.round(s.distanceM),
+          heat: s.heat,
+          topSpeed: s.topSpeed,
+          avgSpeed: s.avgSpeed,
+          leftPct: s.leftPct,
+          netApproaches: s.netApproaches,
+          avgNetDist: s.avgNetDist,
+        };
       }),
-    [result.samples, rallies, inPlayOnly],
+    [tracks, rallies, inPlayOnly],
   );
+  const teams = useMemo(
+    () => ({
+      near: computeTeam(tracks[0], tracks[1], inPlayOnly ? rallies : null),
+      far: computeTeam(tracks[2], tracks[3], inPlayOnly ? rallies : null),
+    }),
+    [tracks, rallies, inPlayOnly],
+  );
+  const pastNetPct = useMemo(() => {
+    const past = loadMatches().map(myStats).filter((p) => p && p.seenSec > 0).map((p) => p!.zonePct.net);
+    return past.length ? past.reduce((a, b) => a + b, 0) / past.length : null;
+  }, []);
+  const insights = useMemo(
+    () => buildInsights({ players, me, teams, rallies: summary, pastNetPct }),
+    [players, me, teams, summary, pastNetPct],
+  );
+  const longest = useMemo(
+    () => (summary ? summary.list.slice().sort((a, b) => b[1] - a[1]).slice(0, 6) : []),
+    [summary],
+  );
+
   const anyTracked = result.samples.some((s) => s.length > 0);
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -78,21 +128,39 @@ export function Results({
       me,
       meThumb: me === null ? null : result.thumbs[me],
       players,
+      teams,
       rallies: summary,
     });
   };
 
   return (
     <div className="step results">
-      <h1>Results</h1>
-      <p className="muted">
-        {fmtClock(result.analysedSec)} of video analysed, {result.frames.toLocaleString()} frames sampled.
-      </p>
+      {sideHost && createPortal(<Tactical video={video} tracks={tracks} me={me} />, sideHost)}
+      <div>
+        <h1>Results</h1>
+        <p className="muted">
+          {fmtClock(result.analysedSec)} of video analysed, {result.frames.toLocaleString()} frames sampled. Play the video
+          above to watch it back with live positions.
+        </p>
+      </div>
       {!anyTracked && (
         <p className="error">
           No players were found on the court. Check the calibration lines sat on the court lines, and that the players
           are clearly visible.
         </p>
+      )}
+
+      {longest.length > 0 && (
+        <section>
+          <h2>Watch the longest rallies</h2>
+          <div className="chips">
+            {longest.map(([start, dur, hits]) => (
+              <button key={start} onClick={() => seek(Math.max(0, start - 1.5))}>
+                <strong>{fmtSec(dur)}</strong> at {fmtClock(start)} · {hits} hits
+              </button>
+            ))}
+          </div>
+        </section>
       )}
 
       <section>
@@ -112,19 +180,27 @@ export function Results({
             </button>
           ))}
         </div>
-        <p className="muted small">
-          Players are followed per side of the net. Two partners can occasionally be swapped after crossing closely.
-        </p>
       </section>
 
-      {result.envelope && (
+      {peaks && (
         <section className="card controls">
+          <label className="check">
+            <input type="checkbox" checked={manual === null} onChange={(e) => setManual(e.target.checked ? null : dbToSensitivity(autoDb))} />
+            <span>Set hit sensitivity automatically from this recording</span>
+          </label>
           <label className="field">
             <span>Hit sensitivity</span>
-            <input type="range" min={0} max={100} value={sensitivity} onChange={(e) => setSensitivity(Number(e.target.value))} />
+            <input
+              type="range"
+              min={0}
+              max={100}
+              disabled={manual === null}
+              value={manual ?? dbToSensitivity(autoDb)}
+              onChange={(e) => setManual(Number(e.target.value))}
+            />
           </label>
           <p className="muted small">
-            Raise it if rallies are being missed (quiet recording), lower it if chatter or the next court is being counted.
+            Raise it if rallies are being missed, lower it if chatter or the next court is being counted.
           </p>
           <label className="check">
             <input type="checkbox" checked={inPlayOnly} disabled={!canFilter} onChange={(e) => setWantInPlay(e.target.checked)} />
@@ -133,7 +209,17 @@ export function Results({
         </section>
       )}
 
-      <StatsView players={players} rallies={summary} me={me} inPlayOnly={inPlayOnly} />
+      <StatsView
+        players={players}
+        teams={teams}
+        rallies={summary}
+        insights={insights}
+        me={me}
+        inPlayOnly={inPlayOnly}
+        totalSec={result.analysedSec}
+        playhead={playhead}
+        onSeek={seek}
+      />
 
       <section className="card">
         <h2>Save to match log</h2>

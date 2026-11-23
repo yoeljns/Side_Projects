@@ -4,12 +4,15 @@ import type { Pt } from './court';
 import { attachAudio, EnvelopeBuilder, type AudioTap } from './audio';
 import { PersonDetector } from './detector';
 import { homography, project, type H } from './homography';
-import { buildTiles, type Tile } from './tiles';
-import { onCourt, Tracker, type Assignment, type CourtDet, type Sample } from './tracker';
+import { buildTiles, roiTile, type Tile } from './tiles';
+import { onCourt, Tracker, type Assignment, type Box, type CourtDet, type Sample } from './tracker';
+import { setAudible } from './audio';
 
 /** Seconds of media time between position samples. */
 const SAMPLE_DT = 0.2;
 const START_RATE = 4;
+/** The whole court is re-scanned at least every this many samples. */
+const FULL_SCAN_EVERY = 5;
 
 export type Calibration = {
   /** Four tapped points, normalised to 0..1 of the video frame. */
@@ -36,7 +39,8 @@ export type Progress = {
   frames: number;
   assignments: Assignment[];
   audio: boolean;
-  delegate: string;
+  /** Which detector ended up running, e.g. "accurate · GPU". */
+  engine: string;
 };
 
 export function calibrationMatrices(c: Calibration, W: number, Hh: number): { toCourt: H; toImage: H } | null {
@@ -60,6 +64,8 @@ export class Analyzer {
   private gaps: number[] = [];
   private thumbs: (string | null)[] = [null, null, null, null];
   private thumbScore = [0, 0, 0, 0];
+  /** Where each player was in the previous sample (frame pixels), if seen. */
+  private lastBox: (Box | null)[] = [null, null, null, null];
   private thumbCanvas = document.createElement('canvas');
   private syncTimer = 0;
   private wakeLock: { release(): Promise<void> } | null = null;
@@ -85,6 +91,7 @@ export class Analyzer {
 
     // Audio first: it has to be set up inside the user gesture.
     this.tap = await attachAudio(v);
+    setAudible(v, false);
 
     if (this.tap) {
       this.env = new EnvelopeBuilder(v.duration);
@@ -147,13 +154,21 @@ export class Analyzer {
     this.maxT = Math.max(this.maxT, t);
     this.frames++;
 
-    const boxes = this.detector!.detect(v, this.tiles);
+    // Zoom in on each player we already follow; scan the whole court as well
+    // whenever someone is missing, and periodically regardless.
+    const W = v.videoWidth, Hh = v.videoHeight;
+    const rois = this.lastBox.filter((b): b is Box => !!b).map((b) => roiTile(b, W, Hh));
+    const fullScan = rois.length < 4 || this.frames % FULL_SCAN_EVERY === 0;
+    const det = this.detector!;
+    const boxes = det.detect(v, fullScan ? [...rois, ...this.tiles] : rois);
     const dets: CourtDet[] = [];
     for (const box of boxes) {
       const feet = onCourt(project(this.toCourt, { x: box.x + box.w / 2, y: box.y + box.h }));
-      if (feet) dets.push({ p: feet, box });
+      if (feet) dets.push({ p: feet, box, app: det.appearance(v, box) });
     }
     const assignments = this.tracker.update(t, dets);
+    this.lastBox = [null, null, null, null];
+    for (const a of assignments) this.lastBox[a.slot] = a.det.box;
     for (const a of assignments) this.maybeThumb(a);
     this.onProgress({
       t,
@@ -162,7 +177,7 @@ export class Analyzer {
       frames: this.frames,
       assignments,
       audio: !!this.env,
-      delegate: this.detector!.delegate,
+      engine: `${det.model} · ${det.delegate}`,
     });
   }
 
@@ -208,6 +223,7 @@ export class Analyzer {
     v.pause();
     v.playbackRate = 1;
     if (this.tap) this.tap.onBatch = null;
+    setAudible(v, true); // so the match can be watched back with sound
     void this.wakeLock?.release().catch(() => {});
     this.detector?.close();
     this.done({

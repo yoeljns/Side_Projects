@@ -1,18 +1,27 @@
 import { useState } from 'react';
-import { ZONES, ZONE_LABEL, type Zone } from '../lib/court';
-import { pct } from '../lib/format';
+import { fmtClock, fmtSec, pct } from '../lib/format';
 import { RALLY_BUCKETS } from '../lib/hits';
 
-/** Stacked share of time per zone, one row per player. */
-export function ZoneBars({ rows }: { rows: { label: string; zonePct: Record<Zone, number>; empty: boolean }[] }) {
-  const [tip, setTip] = useState<{ row: number; zone: Zone; x: number } | null>(null);
+export type StackKey = { key: string; label: string };
+
+/** Stacked shares, one row per player or pair. Segment colours come from `.stack-<key>`. */
+export function StackBars({
+  keys,
+  rows,
+  note,
+}: {
+  keys: StackKey[];
+  rows: { label: string; values: number[]; empty: boolean; right: string }[];
+  note?: string;
+}) {
+  const [tip, setTip] = useState<{ row: number; k: number; x: number } | null>(null);
   return (
     <div className="zonebars">
       <div className="legend">
-        {ZONES.map((z) => (
-          <span key={z}>
-            <i className={`sw zone-${z}`} />
-            {ZONE_LABEL[z]}
+        {keys.map((k) => (
+          <span key={k.key}>
+            <i className={`sw stack-${k.key}`} />
+            {k.label}
           </span>
         ))}
       </div>
@@ -21,17 +30,17 @@ export function ZoneBars({ rows }: { rows: { label: string; zonePct: Record<Zone
           <span className="zonebar-label">{r.label}</span>
           <div className="zonebar" onPointerLeave={() => setTip(null)}>
             {r.empty ? (
-              <span className="zonebar-empty">not tracked</span>
+              <span className="zonebar-empty">not enough tracking</span>
             ) : (
-              ZONES.map((z) =>
-                r.zonePct[z] > 0.004 ? (
+              keys.map((k, ki) =>
+                r.values[ki] > 0.004 ? (
                   <div
-                    key={z}
-                    className={`seg zone-${z}`}
-                    style={{ flexGrow: r.zonePct[z] }}
+                    key={k.key}
+                    className={`seg stack-${k.key}`}
+                    style={{ flexGrow: r.values[ki] }}
                     onPointerMove={(e) => {
                       const host = e.currentTarget.parentElement!.getBoundingClientRect();
-                      setTip({ row: i, zone: z, x: e.clientX - host.left });
+                      setTip({ row: i, k: ki, x: e.clientX - host.left });
                     }}
                   />
                 ) : null,
@@ -39,14 +48,14 @@ export function ZoneBars({ rows }: { rows: { label: string; zonePct: Record<Zone
             )}
             {tip && tip.row === i && (
               <div className="tooltip" style={{ left: tip.x, top: 0 }}>
-                {ZONE_LABEL[tip.zone]}: {pct(r.zonePct[tip.zone])}
+                {keys[tip.k].label}: {pct(r.values[tip.k])}
               </div>
             )}
           </div>
-          <span className="zonebar-value">{r.empty ? '–' : pct(r.zonePct.net)}</span>
+          <span className="zonebar-value">{r.empty ? '–' : r.right}</span>
         </div>
       ))}
-      <p className="chart-note">The number on the right is the share of time at the net.</p>
+      {note && <p className="chart-note">{note}</p>}
     </div>
   );
 }
@@ -73,6 +82,53 @@ export function RallyHistogram({ buckets }: { buckets: number[] }) {
           <span className="hist-label">{RALLY_BUCKETS[i].label}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The match as a strip: one block per rally, as tall as it was long.
+ * With `onSeek`, clicking a rally jumps the video to it.
+ */
+export function RallyTimeline({
+  list,
+  totalSec,
+  playhead,
+  onSeek,
+}: {
+  list: [number, number, number][];
+  totalSec: number;
+  playhead?: number | null;
+  onSeek?: (t: number) => void;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 1000, Hh = 64;
+  const span = Math.max(totalSec, 1);
+  const maxDur = Math.max(10, ...list.map((r) => r[1]));
+  const h = hover === null ? null : list[hover];
+  return (
+    <div className="timeline" onPointerLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${W} ${Hh}`} preserveAspectRatio="none">
+        <line className="grid" x1={0} x2={W} y1={Hh - 0.5} y2={Hh - 0.5} />
+        {list.map(([start, dur, hits], i) => {
+          const x = (start / span) * W, w = Math.max(2.5, (dur / span) * W - 1);
+          const bh = Math.max(4, (dur / maxDur) * (Hh - 4));
+          return (
+            <g key={i} onPointerEnter={() => setHover(i)} onClick={() => onSeek?.(Math.max(0, start - 1.5))} className={onSeek ? 'clickable' : undefined}>
+              <rect className="hit" x={x - 3} y={0} width={w + 6} height={Hh} />
+              <rect className={`rally${hover === i ? ' hover' : ''}`} x={x} y={Hh - bh} width={w} height={bh} rx={1.5}>
+                <title>{`${fmtClock(start)} · ${fmtSec(dur)} · ${hits} hits`}</title>
+              </rect>
+            </g>
+          );
+        })}
+        {playhead != null && <line className="playhead" x1={(playhead / span) * W} x2={(playhead / span) * W} y1={0} y2={Hh} />}
+      </svg>
+      <div className="timeline-axis">
+        <span>0:00</span>
+        <span>{h ? `${fmtClock(h[0])} · ${fmtSec(h[1])} rally · ${h[2]} hits${onSeek ? ' · click to watch' : ''}` : 'Each block is a rally; taller means longer'}</span>
+        <span>{fmtClock(totalSec)}</span>
+      </div>
     </div>
   );
 }

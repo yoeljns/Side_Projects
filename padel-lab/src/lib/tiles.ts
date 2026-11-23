@@ -5,7 +5,8 @@ import { COURT_L, COURT_W, NET_Y } from './court';
 import { project, type H } from './homography';
 import type { Box } from './tracker';
 
-export type Tile = { x: number; y: number; w: number; h: number; innerL: boolean; innerR: boolean };
+/** A crop of the frame. `inner*` marks edges that cut through the scene rather than ending at the frame. */
+export type Tile = { x: number; y: number; w: number; h: number; innerL: boolean; innerR: boolean; innerT?: boolean; innerB?: boolean };
 
 const PLAYER_H = 2.1; // metres of headroom above the feet
 const SIDE_PAD = 0.9;
@@ -54,10 +55,28 @@ export function buildTiles(hCourtToImg: H, W: number, Hh: number): Tile[] {
   return tiles;
 }
 
-/** A box cut off by a tile's inner edge is dropped: the neighbouring tile sees it whole. */
+/** A box cut off by a tile's inner edge is dropped: another tile sees it whole. */
 export function truncatedByTile(b: Box, t: Tile): boolean {
-  const eps = t.w * 0.015;
-  return (t.innerL && b.x - t.x < eps) || (t.innerR && t.x + t.w - (b.x + b.w) < eps);
+  const ex = t.w * 0.015, ey = t.h * 0.015;
+  return (
+    (t.innerL && b.x - t.x < ex) ||
+    (t.innerR && t.x + t.w - (b.x + b.w) < ex) ||
+    (!!t.innerT && b.y - t.y < ey) ||
+    (!!t.innerB && t.y + t.h - (b.y + b.h) < ey)
+  );
+}
+
+/**
+ * A zoomed crop around where a tracked player was last seen. Running the
+ * detector on these gives it several times more pixels per player than the
+ * court-wide tiles, which is what makes far-side tracking hold up.
+ */
+export function roiTile(b: Box, W: number, Hh: number): Tile {
+  const side = Math.min(Math.max(b.h * 2.2, b.w * 3.2, 112), Math.min(W, Hh));
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  const x = Math.min(W - side, Math.max(0, cx - side / 2));
+  const y = Math.min(Hh - side, Math.max(0, cy - side / 2));
+  return { x, y, w: side, h: side, innerL: x > 0.5, innerR: x + side < W - 0.5, innerT: y > 0.5, innerB: y + side < Hh - 0.5 };
 }
 
 /** Non-maximum suppression across tiles. */

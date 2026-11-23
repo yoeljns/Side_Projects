@@ -1,10 +1,28 @@
 import { useState } from 'react';
 import { fmtClock, fmtDate } from '../lib/format';
-import type { Match } from '../lib/store';
+import { buildInsights } from '../lib/insights';
+import { myStats, type Match } from '../lib/store';
 import { StatsView } from './StatsView';
 
-export function MatchDetail({ match, onBack, onDelete }: { match: Match; onBack: () => void; onDelete: () => void }) {
+export function MatchDetail({
+  match,
+  matches,
+  onBack,
+  onDelete,
+}: {
+  match: Match;
+  matches: Match[];
+  onBack: () => void;
+  onDelete: () => void;
+}) {
   const [confirm, setConfirm] = useState(false);
+  const past = matches
+    .filter((m) => m.id !== match.id && m.date <= match.date)
+    .map(myStats)
+    .filter((p) => p && p.seenSec > 0)
+    .map((p) => p!.zonePct.net);
+  const pastNetPct = past.length ? past.reduce((a, b) => a + b, 0) / past.length : null;
+  const insights = buildInsights({ players: match.players, me: match.me, teams: match.teams, rallies: match.rallies, pastNetPct });
   const facts = [
     match.result ? (match.result === 'W' ? 'Won' : 'Lost') : null,
     match.score || null,
@@ -26,7 +44,15 @@ export function MatchDetail({ match, onBack, onDelete }: { match: Match; onBack:
           {match.notes && <p className="notes">{match.notes}</p>}
         </div>
       </div>
-      <StatsView players={match.players} rallies={match.rallies} me={match.me} inPlayOnly={match.inPlayOnly} />
+      <StatsView
+        players={match.players}
+        teams={match.teams}
+        rallies={match.rallies}
+        insights={insights}
+        me={match.me}
+        inPlayOnly={match.inPlayOnly}
+        totalSec={match.analysedSec}
+      />
       <div className="actions">
         {confirm ? (
           <>

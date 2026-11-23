@@ -27,6 +27,7 @@ export function App() {
     return (
       <MatchDetail
         match={match}
+        matches={matches}
         onBack={home}
         onDelete={() => {
           setMatches(deleteMatch(match.id));

@@ -45,6 +45,7 @@ export function NewAnalysis({ onSave, onCancel }: { onSave: (m: Match) => void; 
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
+  const [sideHost, setSideHost] = useState<HTMLDivElement | null>(null);
   const analyzer = useRef<Analyzer | null>(null);
   const lastUi = useRef(0);
 
@@ -89,7 +90,7 @@ export function NewAnalysis({ onSave, onCancel }: { onSave: (m: Match) => void; 
     }
   };
 
-  const showVideo = step === 'calibrate' || step === 'analyse';
+  const showVideo = step !== 'pick';
   return (
     <main className="page">
       <header className="pagehead">
@@ -116,23 +117,27 @@ export function NewAnalysis({ onSave, onCancel }: { onSave: (m: Match) => void; 
       )}
 
       {url && (
-        <div className="stage" hidden={!showVideo}>
-          <video
-            ref={videoRef}
-            src={url}
-            playsInline
-            preload="auto"
-            onLoadedMetadata={(e) => {
-              const v = e.currentTarget;
-              if (!v.videoWidth) return setError('This file has no video track.');
-              setReady(true);
-              setStep('calibrate');
-            }}
-            onError={() => {
-              if (step === 'pick') setError("This browser can't play that video format. Try exporting it as MP4 (H.264).");
-            }}
-          />
-          <canvas ref={overlayRef} className={step === 'calibrate' ? 'interactive' : undefined} />
+        <div className={`review${step === 'results' ? ' with-side' : ''}`} hidden={!showVideo}>
+          <div className="stage">
+            <video
+              ref={videoRef}
+              src={url}
+              playsInline
+              preload="auto"
+              controls={step === 'results'}
+              onLoadedMetadata={(e) => {
+                const v = e.currentTarget;
+                if (!v.videoWidth) return setError('This file has no video track.');
+                setReady(true);
+                setStep('calibrate');
+              }}
+              onError={() => {
+                if (step === 'pick') setError("This browser can't play that video format. Try exporting it as MP4 (H.264).");
+              }}
+            />
+            <canvas ref={overlayRef} className={step === 'calibrate' ? 'interactive' : undefined} hidden={step === 'results'} />
+          </div>
+          {step === 'results' && <div className="review-side" ref={setSideHost} />}
         </div>
       )}
 
@@ -146,7 +151,7 @@ export function NewAnalysis({ onSave, onCancel }: { onSave: (m: Match) => void; 
           <progress value={progress ? progress.t : 0} max={progress?.duration || 1} />
           <p className="muted">
             {progress
-              ? `${fmtClock(progress.t)} of ${fmtClock(progress.duration)} · playing at ${progress.rate}× · ${progress.assignments.length} of 4 players in view`
+              ? `${fmtClock(progress.t)} of ${fmtClock(progress.duration)} · playing at ${progress.rate}× · ${progress.assignments.length} of 4 players in view · detector: ${progress.engine}`
               : 'Starting…'}
           </p>
           {progress && !progress.audio && (
@@ -159,7 +164,9 @@ export function NewAnalysis({ onSave, onCancel }: { onSave: (m: Match) => void; 
         </div>
       )}
 
-      {step === 'results' && result && file && <Results result={result} file={file} onSave={onSave} onDiscard={onCancel} />}
+      {step === 'results' && result && file && videoRef.current && (
+        <Results result={result} file={file} video={videoRef.current} sideHost={sideHost} onSave={onSave} onDiscard={onCancel} />
+      )}
     </main>
   );
 }
