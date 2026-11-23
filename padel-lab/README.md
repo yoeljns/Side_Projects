@@ -59,6 +59,10 @@ samples per second with the smaller detector model on CPU:
 | Far left player | 42% | 0.47 m | 1.5 m |
 | All four | 88% | 0.34 m | 1.5 m |
 
+The larger model on the same footage follows 93% of player-time (far-left
+player 71%, far-right 98%) with the same errors, at about three times the
+compute. The app picks it automatically where the GPU can afford it.
+
 What the footage taught:
 
 - From tripod height the far half of the court is about 40 pixel rows deep,
