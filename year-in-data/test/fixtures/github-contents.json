@@ -1,0 +1,98 @@
+[
+ {
+  "name": ".github",
+  "path": ".github",
+  "sha": "0000000000000000000000000000000000000000",
+  "size": 0,
+  "url": "https://api.github.com/repos/test-owner/test-repo/contents/.github?ref=main",
+  "html_url": "https://github.com/test-owner/test-repo/tree/main/.github",
+  "git_url": "https://api.github.com/repos/test-owner/test-repo/git/trees/0000000000000000000000000000000000000000",
+  "download_url": null,
+  "type": "dir",
+  "_links": {
+   "self": "",
+   "git": "",
+   "html": ""
+  }
+ },
+ {
+  "name": "README.md",
+  "path": "README.md",
+  "sha": "0000000000000000000000000000000000000000",
+  "size": 120,
+  "url": "https://api.github.com/repos/test-owner/test-repo/contents/README.md?ref=main",
+  "html_url": "https://github.com/test-owner/test-repo/blob/main/README.md",
+  "git_url": "https://api.github.com/repos/test-owner/test-repo/git/trees/0000000000000000000000000000000000000000",
+  "download_url": null,
+  "type": "file",
+  "_links": {
+   "self": "",
+   "git": "",
+   "html": ""
+  }
+ },
+ {
+  "name": "tide-table",
+  "path": "tide-table",
+  "sha": "0000000000000000000000000000000000000000",
+  "size": 0,
+  "url": "https://api.github.com/repos/test-owner/test-repo/contents/tide-table?ref=main",
+  "html_url": "https://github.com/test-owner/test-repo/tree/main/tide-table",
+  "git_url": "https://api.github.com/repos/test-owner/test-repo/git/trees/0000000000000000000000000000000000000000",
+  "download_url": null,
+  "type": "dir",
+  "_links": {
+   "self": "",
+   "git": "",
+   "html": ""
+  }
+ },
+ {
+  "name": "paper-ledger",
+  "path": "paper-ledger",
+  "sha": "0000000000000000000000000000000000000000",
+  "size": 0,
+  "url": "https://api.github.com/repos/test-owner/test-repo/contents/paper-ledger?ref=main",
+  "html_url": "https://github.com/test-owner/test-repo/tree/main/paper-ledger",
+  "git_url": "https://api.github.com/repos/test-owner/test-repo/git/trees/0000000000000000000000000000000000000000",
+  "download_url": null,
+  "type": "dir",
+  "_links": {
+   "self": "",
+   "git": "",
+   "html": ""
+  }
+ },
+ {
+  "name": "old-tool",
+  "path": "old-tool",
+  "sha": "0000000000000000000000000000000000000000",
+  "size": 0,
+  "url": "https://api.github.com/repos/test-owner/test-repo/contents/old-tool?ref=main",
+  "html_url": "https://github.com/test-owner/test-repo/tree/main/old-tool",
+  "git_url": "https://api.github.com/repos/test-owner/test-repo/git/trees/0000000000000000000000000000000000000000",
+  "download_url": null,
+  "type": "dir",
+  "_links": {
+   "self": "",
+   "git": "",
+   "html": ""
+  }
+ },
+ {
+  "name": "package.json",
+  "path": "package.json",
+  "sha": "0000000000000000000000000000000000000000",
+  "size": 120,
+  "url": "https://api.github.com/repos/test-owner/test-repo/contents/package.json?ref=main",
+  "html_url": "https://github.com/test-owner/test-repo/blob/main/package.json",
+  "git_url": "https://api.github.com/repos/test-owner/test-repo/git/trees/0000000000000000000000000000000000000000",
+  "download_url": null,
+  "type": "file",
+  "_links": {
+   "self": "",
+   "git": "",
+   "html": ""
+  }
+ }
+]

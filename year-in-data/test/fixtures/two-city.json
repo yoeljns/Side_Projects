@@ -1,0 +1,209 @@
+{
+ "stays": [
+  {
+   "id": "s1",
+   "city": "london",
+   "country": "GB",
+   "arrive": "2024-01-05",
+   "depart": "2024-06-20",
+   "source": "manual"
+  },
+  {
+   "id": "s2",
+   "city": "istanbul",
+   "country": "TR",
+   "arrive": "2024-06-20",
+   "depart": "2024-09-01",
+   "source": "manual"
+  },
+  {
+   "id": "s3",
+   "city": "london",
+   "country": "GB",
+   "arrive": "2024-09-01",
+   "depart": "2025-02-20",
+   "source": "manual"
+  },
+  {
+   "id": "s4",
+   "city": "istanbul",
+   "country": "TR",
+   "arrive": "2025-02-20",
+   "depart": "2025-04-09",
+   "source": "manual"
+  },
+  {
+   "id": "s5",
+   "city": "london",
+   "country": "GB",
+   "arrive": "2025-04-09",
+   "depart": "2025-07-01",
+   "source": "manual"
+  },
+  {
+   "id": "s6",
+   "city": "lisbon",
+   "country": "PT",
+   "arrive": "2025-07-01",
+   "depart": "2025-07-08",
+   "source": "manual"
+  },
+  {
+   "id": "s7",
+   "city": "london",
+   "country": "GB",
+   "arrive": "2025-07-08",
+   "depart": "2025-08-15",
+   "source": "manual"
+  },
+  {
+   "id": "s8",
+   "city": "istanbul",
+   "country": "TR",
+   "arrive": "2025-08-15",
+   "depart": "2025-10-30",
+   "source": "manual"
+  },
+  {
+   "id": "s9",
+   "city": "tbilisi",
+   "country": "GE",
+   "arrive": "2025-10-30",
+   "depart": "2025-11-04",
+   "source": "manual"
+  },
+  {
+   "id": "s10",
+   "city": "istanbul",
+   "country": "TR",
+   "arrive": "2025-11-04",
+   "depart": "2025-12-20",
+   "source": "manual"
+  },
+  {
+   "id": "s11",
+   "city": "london",
+   "country": "GB",
+   "arrive": "2025-12-20",
+   "depart": "2026-02-10",
+   "source": "manual"
+  },
+  {
+   "id": "s12",
+   "city": "istanbul",
+   "country": "TR",
+   "arrive": "2026-02-14",
+   "depart": "2026-04-02",
+   "source": "manual"
+  },
+  {
+   "id": "s13",
+   "city": "london",
+   "country": "GB",
+   "arrive": "2026-04-02",
+   "depart": "2026-08-01",
+   "source": "manual"
+  },
+  {
+   "id": "s14",
+   "city": "lisbon",
+   "country": "PT",
+   "arrive": "2026-08-01",
+   "depart": "2026-08-10",
+   "source": "manual"
+  },
+  {
+   "id": "s15",
+   "city": "london",
+   "country": "GB",
+   "arrive": "2026-08-10",
+   "depart": null,
+   "source": "manual"
+  }
+ ],
+ "fixtures": [
+  {
+   "id": "f1",
+   "date": "2024-10-05",
+   "opponent": "Harbour City",
+   "home": true,
+   "competition": "League",
+   "attended": true
+  },
+  {
+   "id": "f2",
+   "date": "2025-03-09",
+   "opponent": "Eastfield Town",
+   "home": true,
+   "competition": "League",
+   "attended": true
+  },
+  {
+   "id": "f3",
+   "date": "2025-04-12",
+   "opponent": "Northbridge Rovers",
+   "home": true,
+   "competition": "League",
+   "attended": true
+  },
+  {
+   "id": "f4",
+   "date": "2025-05-03",
+   "opponent": "Eastfield Town",
+   "home": false,
+   "competition": "League",
+   "venue": "Eastfield Park",
+   "attended": true
+  },
+  {
+   "id": "f5",
+   "date": "2025-08-02",
+   "opponent": "Harbour City",
+   "home": true,
+   "competition": "League",
+   "attended": false
+  },
+  {
+   "id": "f6",
+   "date": "2025-12-27",
+   "opponent": "Southmoor United",
+   "home": true,
+   "competition": "League",
+   "attended": true
+  },
+  {
+   "id": "f7",
+   "date": "2026-01-17",
+   "opponent": "Westvale Athletic",
+   "home": true,
+   "competition": "Cup",
+   "attended": true
+  },
+  {
+   "id": "f8",
+   "date": "2026-03-10",
+   "opponent": "Northbridge Rovers",
+   "home": false,
+   "competition": "League",
+   "venue": "Northbridge Lane",
+   "attended": true
+  },
+  {
+   "id": "f9",
+   "date": "2026-09-12",
+   "opponent": "Southmoor United",
+   "home": false,
+   "competition": "League",
+   "venue": "Moor Road",
+   "attended": true
+  },
+  {
+   "id": "f10",
+   "date": "2026-12-05",
+   "opponent": "Westvale Athletic",
+   "home": true,
+   "competition": "League"
+  }
+ ],
+ "updatedAt": 1795000000000
+}

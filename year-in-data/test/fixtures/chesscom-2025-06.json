@@ -1,0 +1,144 @@
+{
+ "games": [
+  {
+   "url": "https://www.chess.com/game/live/900000001",
+   "pgn": "[Event \"Live Chess\"]\n\n1. e4 e5 *",
+   "time_control": "600",
+   "end_time": 1749124800,
+   "rated": true,
+   "tcn": "mC0K",
+   "uuid": "00000000-0000-4000-8000-000000000001",
+   "initial_setup": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "fen": "8/8/8/8/8/8/8/8 w - - 0 1",
+   "time_class": "rapid",
+   "rules": "chess",
+   "white": {
+    "rating": 1210,
+    "result": "win",
+    "@id": "https://api.chess.com/pub/player/testpawn",
+    "username": "TestPawn",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "black": {
+    "rating": 1190,
+    "result": "resigned",
+    "@id": "https://api.chess.com/pub/player/slowmover",
+    "username": "SlowMover",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "eco": "https://www.chess.com/openings/Kings-Pawn-Opening"
+  },
+  {
+   "url": "https://www.chess.com/game/live/900000002",
+   "pgn": "[Event \"Live Chess\"]\n\n1. e4 e5 *",
+   "time_control": "600",
+   "end_time": 1749128400,
+   "rated": true,
+   "tcn": "mC0K",
+   "uuid": "00000000-0000-4000-8000-000000000002",
+   "initial_setup": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "fen": "8/8/8/8/8/8/8/8 w - - 0 1",
+   "time_class": "rapid",
+   "rules": "chess",
+   "white": {
+    "rating": 1250,
+    "result": "win",
+    "@id": "https://api.chess.com/pub/player/clockwatch",
+    "username": "ClockWatch",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "black": {
+    "rating": 1202,
+    "result": "timeout",
+    "@id": "https://api.chess.com/pub/player/testpawn",
+    "username": "TestPawn",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "eco": "https://www.chess.com/openings/Kings-Pawn-Opening"
+  },
+  {
+   "url": "https://www.chess.com/game/daily/900000003",
+   "pgn": "[Event \"Live Chess\"]\n\n1. e4 e5 *",
+   "time_control": "1/86400",
+   "end_time": 1750402800,
+   "rated": true,
+   "tcn": "mC0K",
+   "uuid": "00000000-0000-4000-8000-000000000003",
+   "initial_setup": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "fen": "8/8/8/8/8/8/8/8 w - - 0 1",
+   "time_class": "daily",
+   "rules": "chess",
+   "white": {
+    "rating": 1300,
+    "result": "stalemate",
+    "@id": "https://api.chess.com/pub/player/testpawn",
+    "username": "TestPawn",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "black": {
+    "rating": 1340,
+    "result": "stalemate",
+    "@id": "https://api.chess.com/pub/player/longgame",
+    "username": "LongGame",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "eco": "https://www.chess.com/openings/Kings-Pawn-Opening"
+  },
+  {
+   "url": "https://www.chess.com/game/live/900000004",
+   "pgn": "[Event \"Live Chess\"]\n\n1. e4 e5 *",
+   "time_control": "600",
+   "end_time": 1750449600,
+   "rated": true,
+   "tcn": "mC0K",
+   "uuid": "00000000-0000-4000-8000-000000000004",
+   "initial_setup": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "fen": "8/8/8/8/8/8/8/8 w - - 0 1",
+   "time_class": "blitz",
+   "rules": "chess960",
+   "white": {
+    "rating": 1100,
+    "result": "win",
+    "@id": "https://api.chess.com/pub/player/testpawn",
+    "username": "TestPawn",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "black": {
+    "rating": 1000,
+    "result": "checkmated",
+    "@id": "https://api.chess.com/pub/player/slowmover",
+    "username": "SlowMover",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "eco": "https://www.chess.com/openings/Kings-Pawn-Opening"
+  },
+  {
+   "url": "https://www.chess.com/game/live/900000005",
+   "pgn": "[Event \"Live Chess\"]\n\n1. e4 e5 *",
+   "time_control": "600",
+   "end_time": 1750518000,
+   "rated": true,
+   "tcn": "mC0K",
+   "uuid": "00000000-0000-4000-8000-000000000005",
+   "initial_setup": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+   "fen": "8/8/8/8/8/8/8/8 w - - 0 1",
+   "time_class": "rapid",
+   "rules": "chess",
+   "white": {
+    "rating": 1305,
+    "result": "checkmated",
+    "@id": "https://api.chess.com/pub/player/gambiteer",
+    "username": "Gambiteer",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "black": {
+    "rating": 1211,
+    "result": "win",
+    "@id": "https://api.chess.com/pub/player/testpawn",
+    "username": "TestPawn",
+    "uuid": "11111111-0000-4000-8000-000000000000"
+   },
+   "eco": "https://www.chess.com/openings/Kings-Pawn-Opening"
+  }
+ ]
+}

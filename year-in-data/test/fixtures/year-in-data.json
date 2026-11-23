@@ -1,0 +1,14 @@
+{
+  "birthday": { "month": 3, "day": 10 },
+  "books": [
+    { "id": "bk1", "title": "Half a Season", "author": "Tobias Wren", "finished": "2024-08-09", "rating": 2, "pages": 340 }
+  ],
+  "builds": [
+    { "id": "bd1", "name": "Old tool", "shipped": "2024-09-14", "note": "A command-line helper" }
+  ],
+  "counters": [
+    { "id": "ct1", "label": "Backgammon matches", "byYear": { "2025": { "played": 31, "won": 17 }, "2026": { "played": 44, "won": 25 } } }
+  ],
+  "answers": { "2025": { "q-where": "A fictional answer written for last year, to check that past years stay browsable." } },
+  "updatedAt": 1700000000000
+}

@@ -1,0 +1,91 @@
+{
+ "decisions": [
+  {
+   "id": "d1",
+   "title": "Hire a second engineer by June",
+   "category": "company",
+   "madeOn": "2025-03-20",
+   "probability": 0.7,
+   "reviewOn": "2025-06-30",
+   "outcome": true,
+   "resolvedOn": "2025-06-12"
+  },
+  {
+   "id": "d2",
+   "title": "Pilot customer renews",
+   "category": "company",
+   "madeOn": "2025-04-02",
+   "probability": 0.9,
+   "reviewOn": "2025-10-01",
+   "outcome": false,
+   "resolvedOn": "2025-09-28"
+  },
+  {
+   "id": "d3",
+   "title": "Dissertation topic approved first time",
+   "category": "masters",
+   "madeOn": "2025-05-10",
+   "probability": 0.6,
+   "reviewOn": "2025-07-01",
+   "outcome": true,
+   "resolvedOn": "2025-06-25"
+  },
+  {
+   "id": "d4",
+   "title": "Move the office",
+   "category": "company",
+   "madeOn": "2025-09-15",
+   "probability": 0.2,
+   "reviewOn": "2026-01-15",
+   "outcome": false,
+   "resolvedOn": "2026-01-10"
+  },
+  {
+   "id": "d5",
+   "title": "Run a sub-50 10k",
+   "category": "training",
+   "madeOn": "2025-11-01",
+   "probability": 0.5,
+   "reviewOn": "2026-06-01"
+  },
+  {
+   "id": "d6",
+   "title": "Finish the essay series",
+   "category": "writing",
+   "madeOn": "2024-11-11",
+   "probability": 0.8,
+   "reviewOn": "2025-03-31",
+   "outcome": false,
+   "resolvedOn": "2025-04-01"
+  },
+  {
+   "id": "d7",
+   "title": "Ship the mobile app in spring",
+   "category": "company",
+   "madeOn": "2024-05-01",
+   "probability": 0.75,
+   "reviewOn": "2024-09-01",
+   "outcome": true,
+   "resolvedOn": "2024-08-20"
+  },
+  {
+   "id": "d8",
+   "title": "Second pilot signs",
+   "category": "company",
+   "madeOn": "2026-04-05",
+   "probability": 0.65,
+   "reviewOn": "2026-07-01",
+   "outcome": true,
+   "resolvedOn": "2026-06-20"
+  },
+  {
+   "id": "d9",
+   "title": "Open a second office",
+   "category": "company",
+   "madeOn": "2026-05-01",
+   "probability": 0.3,
+   "reviewOn": "2027-01-01"
+  }
+ ],
+ "updatedAt": 1795000000000
+}
