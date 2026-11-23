@@ -1,7 +1,8 @@
-import { AUCTION_STRATEGIES, playAuctionMatch } from './auction';
+import { AUCTION_STRATEGIES, type AuctionRoom, playAuctionRoom } from './auction';
 import { BARGAIN_STRATEGIES, playBargainMatch } from './bargain';
 import { type RunConfig, strategiesFor } from './config';
-import { GAME_STRATEGIES, playGameMatch } from './games';
+import { replicator } from './evolution';
+import { gameStrategies, playGameMatch } from './games';
 import { makeRng } from './rng';
 import type { MatchPlay, RoundRecord, StrategyInfo } from './types';
 
@@ -21,6 +22,7 @@ export interface Standing {
   total: number;
   /** Average payoff per round across everything it played. */
   perRound: number;
+  /** Matches won, drawn and lost. In the auction arena, wins counts auctions won and the other two are zero. */
   wins: number;
   draws: number;
   losses: number;
@@ -33,6 +35,13 @@ export interface TournamentResult {
   /** matrix[i][j]: i's average payoff per round against j, or null if they did not meet. */
   matrix: (number | null)[][];
   leaderboard: Standing[];
+  /**
+   * Auction arena only (there are no pairwise matches): the same bidders and the same values
+   * run under both formats, so revenues can be compared. The run's own format is config.auction.format.
+   */
+  auction?: Record<'first' | 'second', AuctionRoom>;
+  /** Repeated games only: population shares per generation, see replicator(). */
+  evolution?: number[][];
 }
 
 function find<T extends StrategyInfo>(list: T[], id: string): T {
@@ -45,10 +54,12 @@ function play(cfg: RunConfig, a: string, b: string): MatchPlay {
   // Each pairing gets its own stream, so adding or removing a strategy never changes other matches.
   const rng = makeRng(cfg.seed, cfg.arena, a, b);
   switch (cfg.arena) {
-    case 'games':
-      return playGameMatch(find(GAME_STRATEGIES, a), find(GAME_STRATEGIES, b), cfg.games, cfg.rounds, rng);
+    case 'games': {
+      const list = gameStrategies(cfg.custom);
+      return playGameMatch(find(list, a), find(list, b), cfg.games, cfg.rounds, rng);
+    }
     case 'auction':
-      return playAuctionMatch(find(AUCTION_STRATEGIES, a), find(AUCTION_STRATEGIES, b), cfg.auction, cfg.rounds, rng);
+      throw new Error('Auctions are played as one room, not as matches');
     case 'bargain':
       return playBargainMatch(find(BARGAIN_STRATEGIES, a), find(BARGAIN_STRATEGIES, b), cfg.bargain, cfg.rounds, rng);
   }
@@ -76,7 +87,7 @@ export function schedule(n: number, selfPlay: boolean): [number, number][] {
 
 /** Round-robin: every strategy meets every other once (and itself, if selfPlay is on). */
 export function runTournament(cfg: RunConfig): TournamentResult {
-  const all = strategiesFor(cfg.arena);
+  const all = strategiesFor(cfg.arena, cfg.custom);
   const players = [...new Set(cfg.strategies)].map((id) => find(all, id));
   const n = players.length;
   const matches: Match[] = [];
@@ -84,6 +95,20 @@ export function runTournament(cfg: RunConfig): TournamentResult {
   const stand = players.map((p, index) => ({ index, id: p.id, name: p.name, total: 0, perRound: 0, wins: 0, draws: 0, losses: 0 }));
   const played = players.map(() => 0);
   const rounds = Math.max(1, cfg.rounds);
+
+  if (cfg.arena === 'auction') {
+    const bidders = players.map((p) => find(AUCTION_STRATEGIES, p.id));
+    const room = (format: 'first' | 'second') => playAuctionRoom(bidders, { format }, cfg.rounds, makeRng(cfg.seed, 'auction'));
+    const auction = { first: room('first'), second: room('second') };
+    const mine = auction[cfg.auction.format];
+    stand.forEach((s, i) => {
+      s.total = mine.scores[i];
+      s.perRound = s.total / rounds;
+      s.wins = mine.stats[i].wins;
+    });
+    const leaderboard = [...stand].sort((x, y) => y.total - x.total || x.index - y.index);
+    return { config: cfg, players, matches, matrix, leaderboard, auction };
+  }
 
   for (const [i, j] of schedule(n, cfg.selfPlay)) {
     const m = play(cfg, players[i].id, players[j].id);
@@ -113,5 +138,14 @@ export function runTournament(cfg: RunConfig): TournamentResult {
   }
   for (const s of stand) s.perRound = played[s.index] ? s.total / (played[s.index] * rounds) : 0;
   const leaderboard = [...stand].sort((x, y) => y.total - x.total || x.index - y.index);
-  return { config: cfg, players, matches, matrix, leaderboard };
+  if (cfg.arena !== 'games') return { config: cfg, players, matches, matrix, leaderboard };
+  // Evolution needs every strategy's payoff against itself, even when self-play is not scored.
+  const full = matrix.map((row, i) =>
+    row.map((v, j) => {
+      if (v !== null) return v;
+      const m = play(cfg, players[i].id, players[j].id);
+      return (m.scoreA + m.scoreB) / 2 / rounds;
+    }),
+  );
+  return { config: cfg, players, matches, matrix, leaderboard, evolution: replicator(full) };
 }

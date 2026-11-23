@@ -3,7 +3,10 @@ import {
   ARENAS,
   ARENA_NAMES,
   GAME_PRESETS,
+  MAX_CUSTOM,
   MAX_ROUNDS,
+  MEMORY_ONE_PRESETS,
+  cleanMemoryOne,
   decodeConfig,
   describeConfig,
   encodeConfig,
@@ -11,11 +14,12 @@ import {
   strategiesFor,
   switchArena,
   type GamePreset,
+  type MemoryOneSpec,
   type Payoffs,
   type RunConfig,
 } from '../engine';
 import { Player } from './Player';
-import { Heatmap, Leaderboard, MatchDetail } from './Results';
+import { AuctionPanel, AuctionRounds, EvolutionCard, Heatmap, Leaderboard, MatchDetail } from './Results';
 
 const WORDS = ['amber', 'basil', 'cedar', 'delta', 'ember', 'fjord', 'grove', 'harbor', 'indigo', 'juniper', 'kestrel', 'lumen', 'mango', 'nimbus', 'onyx', 'pepper', 'quartz', 'raven', 'sable', 'tundra'];
 const randomSeed = () => `${WORDS[Math.floor(Math.random() * WORDS.length)]}-${Math.floor(Math.random() * 900 + 100)}`;
@@ -47,7 +51,8 @@ export function App() {
 
   const result = useMemo(() => runTournament(cfg), [cfg]);
   const desc = describeConfig(cfg);
-  const all = strategiesFor(cfg.arena);
+  const all = strategiesFor(cfg.arena, cfg.custom);
+  const [preset, setPreset] = useState(0);
 
   useEffect(() => {
     window.history.replaceState(null, '', `?${encodeConfig(cfg)}`);
@@ -69,6 +74,24 @@ export function App() {
     const next = new Set(has ? cfg.strategies.filter((s) => s !== id) : [...cfg.strategies, id]);
     set({ strategies: all.map((s) => s.id).filter((s) => next.has(s)) });
   };
+  const addCustom = () => {
+    const id = ['m1', 'm2', 'm3', 'm4'].find((x) => !cfg.custom.some((c) => c.id === x));
+    if (!id || cfg.custom.length >= MAX_CUSTOM) return;
+    const p = MEMORY_ONE_PRESETS[preset];
+    const taken = new Set(all.map((s) => s.name));
+    let name = p.name;
+    for (let k = 2; taken.has(name); k++) name = `${p.name} ${k}`;
+    setCfg((c) => ({ ...c, custom: [...c.custom, cleanMemoryOne({ id, name, first: p.first, p: [...p.p] })], strategies: [...c.strategies, id] }));
+  };
+  const editCustom = (id: string, patch: Partial<MemoryOneSpec>) =>
+    setCfg((c) => ({ ...c, custom: c.custom.map((x) => (x.id === id ? cleanMemoryOne({ ...x, ...patch }) : x)) }));
+  const removeCustom = (id: string) =>
+    setCfg((c) => {
+      const strategies = c.strategies.filter((s) => s !== id);
+      // Never drop below two players: bring back a built-in if needed.
+      const spare = strategiesFor('games').find((s) => !strategies.includes(s.id));
+      return { ...c, custom: c.custom.filter((x) => x.id !== id), strategies: strategies.length < 2 && spare ? [...strategies, spare.id] : strategies };
+    });
   const setPayoff = (k: keyof Payoffs, v: number) => set({ games: { ...cfg.games, payoffs: { ...cfg.games.payoffs, [k]: v } } });
   const share = async () => {
     try {
@@ -164,7 +187,10 @@ export function App() {
                   <option value="second">Second-price sealed bid (Vickrey)</option>
                 </select>
               </label>
-              <p className="muted small">Each round, both bidders draw a private value from 0 to 100 and bid in secret. The winner earns value minus price.</p>
+              <p className="muted small">
+                All selected bidders sit in one room. Each auction, everyone draws a private value from 0 to 100 and bids in secret. The highest bid wins and earns value minus price;
+                the price is the {cfg.auction.format === 'first' ? 'winning bid' : 'second-highest bid'}.
+              </p>
             </>
           )}
 
@@ -191,22 +217,24 @@ export function App() {
           )}
 
           <div className="row">
-            <NumberField label="Rounds per match" value={cfg.rounds} min={1} max={MAX_ROUNDS} onChange={(v) => set({ rounds: Math.round(v) })} />
+            <NumberField label={cfg.arena === 'auction' ? 'Auctions' : 'Rounds per match'} value={cfg.rounds} min={1} max={MAX_ROUNDS} onChange={(v) => set({ rounds: Math.round(v) })} />
             <label className="field">
               <span>Seed</span>
               <input type="text" value={cfg.seed} maxLength={40} spellCheck={false} data-testid="seed" onChange={(e) => set({ seed: e.target.value })} />
             </label>
           </div>
-          <label className="check">
-            <input type="checkbox" checked={cfg.selfPlay} onChange={(e) => set({ selfPlay: e.target.checked })} />
-            <span>Each strategy also plays a copy of itself</span>
-          </label>
+          {cfg.arena !== 'auction' && (
+            <label className="check">
+              <input type="checkbox" checked={cfg.selfPlay} onChange={(e) => set({ selfPlay: e.target.checked })} />
+              <span>Each strategy also plays a copy of itself</span>
+            </label>
+          )}
           <button className="btn primary wide" data-testid="reroll" onClick={() => set({ seed: randomSeed() })}>
             Run with a new seed
           </button>
 
           <div className="card-head sub">
-            <h3>Strategies</h3>
+            <h3>{cfg.arena === 'auction' ? 'Bidders' : 'Strategies'}</h3>
             <span className="muted small">
               {cfg.strategies.length} of {all.length}
             </span>
@@ -224,6 +252,72 @@ export function App() {
               </li>
             ))}
           </ul>
+
+          {cfg.arena === 'games' && (
+            <>
+              <div className="card-head sub">
+                <h3>Build your own</h3>
+                <span className="muted small">
+                  {cfg.custom.length} of {MAX_CUSTOM}
+                </span>
+              </div>
+              <p className="muted small">A memory-one strategy: a first move, then a chance of cooperating that depends only on the last round (my move, then theirs).</p>
+              {cfg.custom.map((c) => (
+                <div key={c.id} className="custom" role="group" aria-label={c.name} data-testid={`custom-${c.id}`}>
+                  <div className="custom-head">
+                    <input type="text" value={c.name} maxLength={24} aria-label="Strategy name" onChange={(e) => editCustom(c.id, { name: e.target.value })} />
+                    <select value={c.first} aria-label="First move" title="First move" onChange={(e) => editCustom(c.id, { first: e.target.value as 'C' | 'D' })}>
+                      <option value="C">opens C</option>
+                      <option value="D">opens D</option>
+                    </select>
+                    <button className="btn icon" onClick={() => removeCustom(c.id)} aria-label={`Remove ${c.name}`} title="Remove">
+                      ×
+                    </button>
+                  </div>
+                  <div className="custom-grid">
+                    {(['CC', 'CD', 'DC', 'DD'] as const).map((state, k) => (
+                      <label key={state} className="field">
+                        <span>after {state}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={c.p[k]}
+                          aria-label={`Chance of cooperating after ${state}`}
+                          onChange={(e) => {
+                            const p = [...c.p] as MemoryOneSpec['p'];
+                            p[k] = Number(e.target.value);
+                            editCustom(c.id, { p });
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {cfg.custom.length < MAX_CUSTOM && (
+                <>
+                  <div className="add-row">
+                    <label className="field">
+                      <span>Start from</span>
+                      <select value={preset} data-testid="preset" onChange={(e) => setPreset(Number(e.target.value))}>
+                        {MEMORY_ONE_PRESETS.map((p, i) => (
+                          <option key={p.name} value={i}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="btn" data-testid="add-custom" onClick={addCustom}>
+                      Add
+                    </button>
+                  </div>
+                  <p className="muted small">{MEMORY_ONE_PRESETS[preset].note}</p>
+                </>
+              )}
+            </>
+          )}
         </aside>
 
         <Player result={result} />
@@ -232,12 +326,23 @@ export function App() {
           <div className="headline">
             <h2>{desc.title}</h2>
             <p className="muted">
-              {desc.subtitle} · {result.matches.length} matches · winner: <b>{result.leaderboard[0].name}</b>
+              {desc.subtitle}
+              {result.auction ? '' : ` · ${result.matches.length} matches`} · winner: <b>{result.leaderboard[0].name}</b>
             </p>
           </div>
           <Leaderboard result={result} unit={desc.unit} />
-          <Heatmap result={result} selected={match} onSelect={(m) => setPick([result.players[m.i].id, result.players[m.j].id])} />
-          {match && <MatchDetail result={result} match={match} />}
+          {result.auction ? (
+            <>
+              <AuctionPanel result={result} />
+              <AuctionRounds result={result} />
+            </>
+          ) : (
+            <>
+              <Heatmap result={result} selected={match} onSelect={(m) => setPick([result.players[m.i].id, result.players[m.j].id])} />
+              {match && <MatchDetail result={result} match={match} />}
+            </>
+          )}
+          {result.evolution && <EvolutionCard result={result} inVideo={cfg.evolution} onInVideo={(evolution) => set({ evolution })} />}
         </div>
       </main>
     </div>

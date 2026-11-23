@@ -5,6 +5,20 @@ import { H, W, buildTimeline, drawFrame } from './animation';
 const SPEEDS = [0.5, 1, 2, 4];
 const canRecord = typeof MediaRecorder !== 'undefined' && 'captureStream' in HTMLCanvasElement.prototype;
 
+/**
+ * Instagram and TikTok take MP4 (H.264) but not WebM, so prefer MP4 wherever the browser can record it.
+ * Only H.264 types are asked for: a bare "video/mp4" may be filled with a codec those apps reject.
+ */
+const FORMATS = [
+  { mime: 'video/mp4;codecs=avc1.640028', ext: 'mp4' },
+  { mime: 'video/mp4;codecs=avc1.42E01E', ext: 'mp4' },
+  { mime: 'video/mp4;codecs=avc1', ext: 'mp4' },
+  { mime: 'video/webm;codecs=vp9', ext: 'webm' },
+  { mime: 'video/webm;codecs=vp8', ext: 'webm' },
+  { mime: 'video/webm', ext: 'webm' },
+];
+const format = canRecord ? FORMATS.find((f) => MediaRecorder.isTypeSupported(f.mime)) : undefined;
+
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 export function Player({ result }: { result: TournamentResult }) {
@@ -77,24 +91,23 @@ export function Player({ result }: { result: TournamentResult }) {
 
   const record = () => {
     const canvas = canvasRef.current;
-    if (!canvas || !canRecord) return;
+    if (!canvas || !format) return;
     if (recRef.current) {
       setPlaying(false);
       stopRecording();
       return;
     }
-    const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m));
-    const rec = new MediaRecorder(canvas.captureStream(30), { mimeType, videoBitsPerSecond: 8_000_000 });
+    const rec = new MediaRecorder(canvas.captureStream(30), { mimeType: format.mime, videoBitsPerSecond: 8_000_000 });
     const chunks: Blob[] = [];
     rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     rec.onstop = () => {
       setRecording(false);
       rec.stream.getTracks().forEach((tr) => tr.stop());
       if (!chunks.length) return;
-      const url = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
+      const url = URL.createObjectURL(new Blob(chunks, { type: format.mime.split(';')[0] }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `strategy-arena-${result.config.arena}-${result.config.seed.replace(/[^\w-]+/g, '_')}.webm`;
+      a.download = `strategy-arena-${result.config.arena}-${result.config.seed.replace(/[^\w-]+/g, '_')}.${format.ext}`;
       a.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
     };
@@ -144,15 +157,23 @@ export function Player({ result }: { result: TournamentResult }) {
         <button
           className={`btn record${recording ? ' on' : ''}`}
           onClick={record}
-          disabled={!canRecord}
-          title={canRecord ? 'Plays the run from the start at 1× and saves it as a WebM video' : 'This browser cannot record a canvas'}
+          disabled={!format}
+          title={format ? `Plays the run from the start at 1× and saves it as ${format.ext.toUpperCase()}` : 'This browser cannot record a canvas'}
           data-testid="record"
         >
           <span className="dot" />
           {recording ? 'Stop & save' : 'Record'}
         </button>
       </div>
-      <p className="muted small">{recording ? `Recording… ${clock(t)} / ${clock(tl.total)}. Keep this tab in view.` : 'Record plays the run once in real time and downloads a WebM.'}</p>
+      <p className="muted small" data-testid="format-note">
+        {recording
+          ? `Recording… ${clock(t)} / ${clock(tl.total)}. Keep this tab in view.`
+          : !format
+            ? 'This browser cannot record the canvas. Try a current Chrome, Edge, Safari or Firefox.'
+            : format.ext === 'mp4'
+              ? 'Record plays the run once in real time and downloads an MP4 (H.264), ready for Instagram and TikTok.'
+              : 'Record plays the run once in real time and downloads a WebM: this browser cannot record MP4. Instagram and TikTok need MP4, so record in a current Chrome, Edge or Safari, or convert the file first.'}
+      </p>
     </section>
   );
 }

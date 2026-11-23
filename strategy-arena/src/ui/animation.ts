@@ -11,26 +11,43 @@ const MUTED = '#8f96b8';
 const ACCENT = '#f2b84b';
 const TONE: Record<Tone, string> = { good: '#4fd1a1', bad: '#f0686a', neutral: '#566090' };
 
+type SceneKind = 'intro' | 'play' | 'outro' | 'evolution';
+interface Scene {
+  kind: SceneKind;
+  start: number;
+  end: number;
+}
+
 export interface Timeline {
   result: TournamentResult;
   title: string;
   subtitle: string;
   unit: string;
-  intro: number;
-  matchDur: number;
-  outro: number;
+  scenes: Scene[];
+  /** Seconds per match (pairwise arenas) or per auction (auction room). */
+  unitDur: number;
   total: number;
-  /** before[k][p]: player p's score when match k starts (one extra row for the final totals). */
+  /** before[k][p]: player p's score when unit k starts (one extra row for the final totals). */
   before: number[][];
-  /** gain[k]: running score added to players i and j after each round of match k. */
+  /** Pairwise arenas: running score added to players i and j after each round of match k. */
   gain: { i: number[]; j: number[] }[];
   maxFinal: number;
 }
+
+const FADE = 0.5;
 
 export function buildTimeline(result: TournamentResult): Timeline {
   const n = result.players.length;
   const before: number[][] = [new Array(n).fill(0)];
   const gain: Timeline['gain'] = [];
+  const room = result.auction?.[result.config.auction.format];
+  if (room) {
+    for (const r of room.rounds) {
+      const next = [...before[before.length - 1]];
+      next[r.winner] += r.surplus;
+      before.push(next);
+    }
+  }
   for (const m of result.matches) {
     const self = m.i === m.j;
     let a = 0;
@@ -49,17 +66,23 @@ export function buildTimeline(result: TournamentResult): Timeline {
     if (!self) next[m.j] += gj[gj.length - 1] ?? 0;
     before.push(next);
   }
-  const intro = 2.8;
-  const outro = 5;
-  const matchDur = Math.min(3, Math.max(1, 45 / Math.max(1, result.matches.length)));
-  const d = describeConfig(result.config);
+  const units = before.length - 1;
+  const unitDur = room ? Math.min(1.6, Math.max(0.25, 45 / Math.max(1, units))) : Math.min(3, Math.max(1, 45 / Math.max(1, units)));
+  const scenes: Scene[] = [];
+  const add = (kind: SceneKind, dur: number) => {
+    const start = scenes.length ? scenes[scenes.length - 1].end : 0;
+    scenes.push({ kind, start, end: start + dur });
+  };
+  add('intro', 2.8);
+  if (units) add('play', unitDur * units + FADE);
+  add('outro', 5);
+  if (result.evolution && result.config.evolution) add('evolution', 9);
   return {
     result,
-    ...d,
-    intro,
-    matchDur,
-    outro,
-    total: intro + matchDur * result.matches.length + outro,
+    ...describeConfig(result.config),
+    scenes,
+    unitDur,
+    total: scenes[scenes.length - 1].end,
     before,
     gain,
     maxFinal: Math.max(1e-9, ...before[before.length - 1]),
@@ -67,19 +90,28 @@ export function buildTimeline(result: TournamentResult): Timeline {
 }
 
 interface Moment {
-  /** Index of the match on screen (clamped). */
+  /** Index of the match or auction on screen (clamped). */
   k: number;
-  /** Rounds revealed in that match, fractional. */
+  /** Pairwise: rounds revealed in that match, fractional. Auction: progress through the round, 0..1. */
   shown: number;
   scores: number[];
 }
 
+/** Auction rounds reveal bids first; the winner is paid once the round is this far along. */
+const SETTLE = 0.55;
+
 function momentAt(tl: Timeline, t: number): Moment {
-  const nm = tl.result.matches.length;
-  const x = (t - tl.intro) / tl.matchDur;
-  if (x <= 0) return { k: 0, shown: 0, scores: tl.before[0] };
-  if (x >= nm) return { k: nm - 1, shown: tl.result.matches[nm - 1].rounds.length, scores: tl.before[nm] };
+  const units = tl.before.length - 1;
+  const start = tl.scenes.find((s) => s.kind === 'play')?.start ?? 0;
+  const x = (t - start) / tl.unitDur;
+  const room = tl.result.auction;
+  if (x <= 0 || units === 0) return { k: 0, shown: 0, scores: tl.before[0] };
+  if (x >= units) return { k: units - 1, shown: room ? 1 : tl.result.matches[units - 1].rounds.length, scores: tl.before[units] };
   const k = Math.floor(x);
+  if (room) {
+    const phase = tl.unitDur < 0.5 ? 1 : x - k; // too fast to animate inside a round: show it settled
+    return { k, shown: phase, scores: tl.before[phase >= SETTLE ? k + 1 : k] };
+  }
   const m = tl.result.matches[k];
   const shown = Math.min(1, (x - k) / 0.8) * m.rounds.length;
   const done = Math.floor(shown);
@@ -246,6 +278,129 @@ function drawBoard(ctx: Ctx, tl: Timeline, t: number, mo: Moment, top: number, b
   }
 }
 
+function drawAuction(ctx: Ctx, tl: Timeline, mo: Moment) {
+  const { result } = tl;
+  const room = result.auction![result.config.auction.format];
+  const r = room.rounds[mo.k];
+  const n = result.players.length;
+  const settled = mo.shown >= SETTLE;
+  const grow = Math.min(1, mo.shown / 0.35);
+  rrect(ctx, 50, 240, 980, 770, 36);
+  ctx.fillStyle = 'rgba(255,255,255,0.055)';
+  ctx.fill();
+  text(ctx, `AUCTION ${mo.k + 1} OF ${room.rounds.length}`, 90, 305, 28, MUTED, { spacing: 4, weight: 700 });
+  const seen = mo.k + (settled ? 1 : 0);
+  let revenue = 0;
+  for (let i = 0; i < seen; i++) revenue += room.rounds[i].price;
+  text(ctx, `AVG PRICE ${seen ? fmt(Math.round(revenue / seen)) : '–'}`, 990, 305, 28, MUTED, { spacing: 4, weight: 700, align: 'right' });
+
+  const top = 340;
+  const rowH = Math.min(120, 580 / n);
+  const nameSize = Math.min(36, rowH * 0.36);
+  const barH = Math.max(10, rowH * 0.2);
+  const scale = 900 / Math.max(100, ...room.rounds.map((x) => Math.max(...x.bids))); // overbidders can pass 100
+  for (let i = 0; i < n; i++) {
+    const y = top + i * rowH;
+    const won = settled && i === r.winner;
+    if (won) {
+      rrect(ctx, 66, y - 4, 948, rowH - 6, 18);
+      ctx.fillStyle = 'rgba(255,255,255,0.09)';
+      ctx.fill();
+    }
+    ctx.globalAlpha *= settled && !won ? 0.5 : 1;
+    ctx.fillStyle = colorOf(i);
+    ctx.beginPath();
+    ctx.arc(100, y + nameSize * 0.7, nameSize * 0.28, 0, Math.PI * 2);
+    ctx.fill();
+    text(ctx, result.players[i].name, 122, y + nameSize, nameSize, INK, { weight: won ? 800 : 650, maxWidth: 430 });
+    text(ctx, `worth ${Math.round(r.values[i])}   bids ${Math.round(r.bids[i] * grow)}`, 990, y + nameSize, nameSize * 0.82, won ? INK : MUTED, { weight: 650, align: 'right', maxWidth: 420 });
+    const by = y + nameSize + rowH * 0.13;
+    rrect(ctx, 90, by, 900, barH, barH / 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.fill();
+    rrect(ctx, 90, by, Math.max(barH, r.bids[i] * grow * scale), barH, barH / 2);
+    ctx.fillStyle = colorOf(i);
+    ctx.fill();
+    ctx.fillStyle = INK; // tick: what the item is really worth to this bidder
+    ctx.fillRect(90 + r.values[i] * scale - 3, by - 7, 6, barH + 14);
+    ctx.globalAlpha /= settled && !won ? 0.5 : 1;
+  }
+  if (settled) {
+    const px = 90 + r.price * scale;
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 4;
+    ctx.setLineDash([12, 10]);
+    ctx.beginPath();
+    ctx.moveTo(px, top - 4);
+    ctx.lineTo(px, top + n * rowH - 8);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const gainTxt = `${r.surplus >= 0 ? '+' : '−'}${fmt(Math.abs(Math.round(r.surplus)))}`;
+    text(ctx, `${result.players[r.winner].name} wins, pays ${Math.round(r.price)}: ${gainTxt}`, W / 2, 985, 34, r.surplus >= 0 ? TONE.good : TONE.bad, { align: 'center', weight: 750, maxWidth: 900 });
+  } else {
+    text(ctx, 'Sealed bids coming in…', W / 2, 985, 30, MUTED, { align: 'center' });
+  }
+}
+
+function drawEvolution(ctx: Ctx, tl: Timeline, u: number) {
+  background(ctx);
+  const evo = tl.result.evolution!;
+  const { players } = tl.result;
+  const gens = evo.length - 1;
+  const g = Math.min(gens, Math.max(0, (u / 0.72) * gens));
+  const gi = Math.floor(g);
+  text(ctx, 'EVOLUTION', W / 2, 150, 34, ACCENT, { align: 'center', spacing: 10, weight: 800 });
+  text(ctx, 'Now let winners multiply', W / 2, 250, 76, INK, { align: 'center', weight: 850, maxWidth: 960 });
+  text(ctx, 'Each generation, a strategy grows in step with its score against the crowd', W / 2, 312, 30, MUTED, { align: 'center', maxWidth: 960 });
+  const x0 = 150, y0 = 400, w = 850, h = 640;
+  rrect(ctx, 50, y0 - 40, 980, h + 120, 30);
+  ctx.fillStyle = 'rgba(255,255,255,0.055)';
+  ctx.fill();
+  const top = Math.min(1, Math.ceil(Math.max(...evo.flat()) * 10) / 10);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  for (let k = 0; k <= 4; k++) {
+    const y = y0 + h - (h * k) / 4;
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x0 + w, y);
+    ctx.stroke();
+    text(ctx, `${Math.round((top * k * 100) / 4)}%`, x0 - 16, y + 9, 26, MUTED, { align: 'right' });
+  }
+  const at = (p: number, gen: number) => {
+    const lo = Math.min(gens, Math.floor(gen));
+    const hi = Math.min(gens, lo + 1);
+    return evo[lo][p] + (evo[hi][p] - evo[lo][p]) * (gen - lo);
+  };
+  ctx.lineWidth = 7;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  players.forEach((_, p) => {
+    ctx.strokeStyle = colorOf(p);
+    ctx.beginPath();
+    for (let k = 0; k <= gi; k++) ctx[k ? 'lineTo' : 'moveTo'](x0 + (w * k) / gens, y0 + h - (h * evo[k][p]) / top);
+    ctx.lineTo(x0 + (w * g) / gens, y0 + h - (h * at(p, g)) / top);
+    ctx.stroke();
+  });
+  text(ctx, `GENERATION ${gi}`, W / 2, y0 + h + 52, 28, MUTED, { align: 'center', spacing: 4, weight: 700 });
+  // Current population, largest first.
+  const order = players.map((_, p) => p).sort((a, b) => at(b, g) - at(a, g) || a - b);
+  const listTop = 1180;
+  const rowH = Math.min(80, 640 / players.length);
+  const size = Math.min(36, rowH * 0.5);
+  order.forEach((p, rank) => {
+    const y = listTop + rank * rowH;
+    const share = at(p, g);
+    ctx.globalAlpha *= share < 0.005 ? 0.4 : 1;
+    text(ctx, players[p].name, 60, y + size, size, INK, { weight: rank === 0 ? 800 : 600, maxWidth: 430 });
+    rrect(ctx, 510, y + size * 0.25, Math.max(8, 380 * (share / top)), size * 0.7, size * 0.35);
+    ctx.fillStyle = colorOf(p);
+    ctx.fill();
+    text(ctx, `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`, 1020, y + size, size, INK, { weight: 800, align: 'right' });
+    ctx.globalAlpha /= share < 0.005 ? 0.4 : 1;
+  });
+}
+
 function drawIntro(ctx: Ctx, tl: Timeline) {
   background(ctx);
   text(ctx, 'STRATEGY ARENA', W / 2, 560, 34, ACCENT, { align: 'center', spacing: 10, weight: 800 });
@@ -282,7 +437,7 @@ function drawIntro(ctx: Ctx, tl: Timeline) {
   });
 }
 
-function drawOutro(ctx: Ctx, tl: Timeline, t: number) {
+function drawOutro(ctx: Ctx, tl: Timeline) {
   background(ctx);
   const lb = tl.result.leaderboard;
   const win = lb[0];
@@ -305,41 +460,52 @@ function drawOutro(ctx: Ctx, tl: Timeline, t: number) {
     ctx.fillStyle = colorOf(s.index);
     ctx.fill();
   });
+  const auction = tl.result.auction;
+  if (auction) {
+    const line = `Seller's average price: ${fmt(auction.first.avgRevenue)} first-price, ${fmt(auction.second.avgRevenue)} second-price`;
+    text(ctx, line, W / 2, 700, 30, MUTED, { align: 'center', maxWidth: 960 });
+  }
+}
+
+function drawPlay(ctx: Ctx, tl: Timeline, t: number) {
+  background(ctx);
+  const mo = momentAt(tl, t);
+  text(ctx, tl.title, W / 2, 130, 64, INK, { align: 'center', weight: 850, maxWidth: 960 });
+  text(ctx, tl.subtitle, W / 2, 186, 30, MUTED, { align: 'center', maxWidth: 960 });
+  let active: number[];
+  if (tl.result.auction) {
+    drawAuction(ctx, tl, mo);
+    active = mo.shown >= SETTLE ? [tl.result.auction[tl.result.config.auction.format].rounds[mo.k].winner] : [];
+  } else {
+    const m = tl.result.matches[mo.k];
+    drawMatch(ctx, tl, mo);
+    active = [m.i, m.j];
+  }
+  text(ctx, 'LEADERBOARD', 60, 1085, 28, MUTED, { spacing: 4, weight: 700 });
+  text(ctx, tl.unit.toUpperCase(), 1020, 1085, 28, MUTED, { spacing: 4, weight: 700, align: 'right' });
+  drawBoard(ctx, tl, t, mo, 1120, 1830, active);
+}
+
+function drawScene(ctx: Ctx, tl: Timeline, scene: Scene, t: number) {
+  if (scene.kind === 'intro') drawIntro(ctx, tl);
+  else if (scene.kind === 'play') drawPlay(ctx, tl, t);
+  else if (scene.kind === 'outro') drawOutro(ctx, tl);
+  else drawEvolution(ctx, tl, (t - scene.start) / (scene.end - scene.start));
   footer(ctx, tl, t);
 }
 
 /** Paint the frame for time t (seconds). Pure: any frame can be drawn at any time, in any order. */
 export function drawFrame(ctx: Ctx, tl: Timeline, t: number) {
-  const { result } = tl;
   ctx.save();
   ctx.globalAlpha = 1;
-  const endOfMatches = tl.intro + tl.matchDur * result.matches.length;
-  const fade = 0.5;
-  if (t < tl.intro - fade || result.matches.length === 0) {
-    drawIntro(ctx, tl);
-    if (result.matches.length) footer(ctx, tl, t);
-  } else if (t >= endOfMatches + fade) {
-    drawOutro(ctx, tl, t);
-  } else {
-    background(ctx);
-    const mo = momentAt(tl, t);
-    const m = result.matches[mo.k];
-    text(ctx, tl.title, W / 2, 130, 64, INK, { align: 'center', weight: 850, maxWidth: 960 });
-    text(ctx, tl.subtitle, W / 2, 186, 30, MUTED, { align: 'center', maxWidth: 960 });
-    drawMatch(ctx, tl, mo);
-    text(ctx, 'LEADERBOARD', 60, 1085, 28, MUTED, { spacing: 4, weight: 700 });
-    text(ctx, tl.unit.toUpperCase(), 1020, 1085, 28, MUTED, { spacing: 4, weight: 700, align: 'right' });
-    drawBoard(ctx, tl, t, mo, 1120, 1830, [m.i, m.j]);
-    footer(ctx, tl, t);
-    // Cross-fade from the title card and into the result card.
-    if (t < tl.intro) {
-      ctx.globalAlpha = (tl.intro - t) / fade;
-      drawIntro(ctx, tl);
-      footer(ctx, tl, t);
-    } else if (t > endOfMatches) {
-      ctx.globalAlpha = (t - endOfMatches) / fade;
-      drawOutro(ctx, tl, t);
-    }
+  const idx = Math.max(0, tl.scenes.findIndex((s, i) => t < s.end || i === tl.scenes.length - 1));
+  const scene = tl.scenes[idx];
+  drawScene(ctx, tl, scene, t);
+  // Cross-fade into the next scene over the last half second.
+  const next = tl.scenes[idx + 1];
+  if (next && t > scene.end - FADE) {
+    ctx.globalAlpha = (t - (scene.end - FADE)) / FADE;
+    drawScene(ctx, tl, next, next.start);
   }
   ctx.restore();
 }

@@ -1,5 +1,5 @@
 import { type Rng, fork } from './rng';
-import { clamp, type MatchPlay, type RoundRecord, type StrategyInfo } from './types';
+import { clamp, type StrategyInfo } from './types';
 
 export type AuctionFormat = 'first' | 'second';
 
@@ -66,38 +66,72 @@ export const AUCTION_STRATEGIES: AuctionStrategy[] = [
   },
 ];
 
-export function playAuctionMatch(a: AuctionStrategy, b: AuctionStrategy, params: AuctionParams, rounds: number, rng: Rng): MatchPlay {
-  // Values are drawn up front so they depend only on the seed, never on who is bidding.
-  const values: [number, number][] = [];
-  for (let r = 0; r < rounds; r++) values.push([rng() * VALUE_MAX, rng() * VALUE_MAX]);
-  const rngA = fork(rng);
-  const rngB = fork(rng);
-  const tieRng = fork(rng);
-  const pa = a.create();
-  const pb = b.create();
-  const ha: AuctionMemory[] = [];
-  const hb: AuctionMemory[] = [];
-  const out: RoundRecord[] = [];
-  let scoreA = 0;
-  let scoreB = 0;
-  for (let r = 0; r < rounds; r++) {
-    const [va, vb] = values[r];
-    const ba = Math.max(0, pa({ value: va, format: params.format, n: 2, history: ha, rng: rngA }));
-    const bb = Math.max(0, pb({ value: vb, format: params.format, n: 2, history: hb, rng: rngB }));
-    const aWins = ba === bb ? tieRng() < 0.5 : ba > bb;
-    const price = params.format === 'first' ? Math.max(ba, bb) : Math.min(ba, bb);
-    const xa = aWins ? va - price : 0;
-    const xb = aWins ? 0 : vb - price;
-    scoreA += xa;
-    scoreB += xb;
-    ha.push({ value: va, bid: ba, won: aWins, price, surplus: xa });
-    hb.push({ value: vb, bid: bb, won: !aWins, price, surplus: xb });
-    const tone = (won: boolean, x: number) => (won ? (x >= 0 ? 'good' : 'bad') : 'neutral');
-    out.push({
-      a: { label: String(Math.round(ba)), payoff: xa, tone: tone(aWins, xa) },
-      b: { label: String(Math.round(bb)), payoff: xb, tone: tone(!aWins, xb) },
-      note: `values ${Math.round(va)} / ${Math.round(vb)}, price ${Math.round(price)}`,
-    });
-  }
-  return { rounds: out, scoreA, scoreB };
+export interface AuctionRound {
+  values: number[];
+  bids: number[];
+  winner: number;
+  /** What the winner pays, i.e. the seller's revenue this round. */
+  price: number;
+  /** The winner's surplus: value minus price. Everyone else gets zero. */
+  surplus: number;
 }
+
+export interface BidderStats {
+  wins: number;
+  surplus: number;
+  /** Average bid as a fraction of value. */
+  bidRatio: number;
+}
+
+export interface AuctionRoom {
+  format: AuctionFormat;
+  rounds: AuctionRound[];
+  /** Cumulative surplus per bidder. */
+  scores: number[];
+  stats: BidderStats[];
+  avgRevenue: number;
+}
+
+/** Every bidder bids in the same sealed-bid auction, once per round. */
+export function playAuctionRoom(bidders: AuctionStrategy[], params: AuctionParams, rounds: number, rng: Rng): AuctionRoom {
+  const n = bidders.length;
+  // Values are drawn up front so they depend only on the seed and room size, never on who is bidding or the format.
+  const values: number[][] = [];
+  for (let r = 0; r < rounds; r++) values.push(bidders.map(() => rng() * VALUE_MAX));
+  const rngs = bidders.map(() => fork(rng));
+  const tieRng = fork(rng);
+  const players = bidders.map((b) => b.create());
+  const memory: AuctionMemory[][] = bidders.map(() => []);
+  const scores = bidders.map(() => 0);
+  const stats: BidderStats[] = bidders.map(() => ({ wins: 0, surplus: 0, bidRatio: 0 }));
+  const ratioCount = bidders.map(() => 0);
+  const out: AuctionRound[] = [];
+  let revenue = 0;
+  for (let r = 0; r < rounds; r++) {
+    const vals = values[r];
+    const bids = players.map((p, i) => Math.max(0, p({ value: vals[i], format: params.format, n, history: memory[i], rng: rngs[i] })));
+    const top = Math.max(...bids);
+    const tied = bids.flatMap((b, i) => (b === top ? [i] : []));
+    const winner = tied.length === 1 ? tied[0] : tied[Math.floor(tieRng() * tied.length)];
+    const second = n > 1 ? Math.max(...bids.filter((_, i) => i !== winner)) : 0;
+    const price = params.format === 'first' ? top : second;
+    const surplus = vals[winner] - price;
+    scores[winner] += surplus;
+    stats[winner].wins++;
+    stats[winner].surplus += surplus;
+    revenue += price;
+    bids.forEach((bid, i) => {
+      memory[i].push({ value: vals[i], bid, won: i === winner, price, surplus: i === winner ? surplus : 0 });
+      if (vals[i] > 1e-9) {
+        stats[i].bidRatio += bid / vals[i];
+        ratioCount[i]++;
+      }
+    });
+    out.push({ values: vals, bids, winner, price, surplus });
+  }
+  stats.forEach((s, i) => (s.bidRatio = ratioCount[i] ? s.bidRatio / ratioCount[i] : 0));
+  return { format: params.format, rounds: out, scores, stats, avgRevenue: rounds ? revenue / rounds : 0 };
+}
+
+/** Expected revenue with n risk-neutral bidders and uniform values, in either format: (n-1)/(n+1) of the top value. */
+export const theoreticalRevenue = (n: number): number => (VALUE_MAX * (n - 1)) / (n + 1);

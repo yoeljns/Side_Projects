@@ -96,6 +96,42 @@ export const GAME_STRATEGIES: GameStrategy[] = [
   { id: 'random', name: 'Random', blurb: 'Flips a fair coin every round.', create: stateless((c) => (c.rng() < 0.5 ? 'C' : 'D')) },
 ];
 
+/**
+ * A memory-one strategy: a first move, then a probability of cooperating that depends only on
+ * the previous round. p is ordered by (my move, their move): CC, CD, DC, DD.
+ */
+export interface MemoryOneSpec {
+  id: string;
+  name: string;
+  first: Move;
+  p: [number, number, number, number];
+}
+
+export const MEMORY_ONE_PRESETS: { name: string; first: Move; p: MemoryOneSpec['p']; note: string }[] = [
+  { name: 'Extort-2', first: 'C', p: [0.8889, 0.5, 0.3333, 0], note: "Press and Dyson's zero-determinant extortioner: its gain over mutual defection is always twice yours." },
+  { name: 'WSLS vector', first: 'C', p: [1, 0, 0, 1], note: 'Win-Stay-Lose-Shift (Pavlov) written as a memory-one vector.' },
+  { name: 'TFT vector', first: 'C', p: [1, 0, 1, 0], note: 'Tit for Tat as a memory-one vector.' },
+  { name: 'Generous-2', first: 'C', p: [1, 0.3, 0.8, 0.2], note: 'A generous zero-determinant strategy: its own shortfall from mutual cooperation is always twice yours.' },
+  { name: 'Grim vector', first: 'C', p: [1, 0, 0, 0], note: 'Cooperates only after mutual cooperation.' },
+  { name: 'Coin flip', first: 'C', p: [0.5, 0.5, 0.5, 0.5], note: 'A blank slate to edit.' },
+];
+
+export function memoryOneStrategy(spec: MemoryOneSpec): GameStrategy {
+  const pct = spec.p.map((x) => `${Math.round(x * 100)}%`).join(' / ');
+  return {
+    id: spec.id,
+    name: spec.name,
+    blurb: `Custom memory-one: opens ${spec.first}, then cooperates ${pct} of the time after CC / CD / DC / DD.`,
+    create: stateless((c) => {
+      if (c.round === 0) return spec.first;
+      const state = (last(c.my) === 'C' ? 0 : 2) + (last(c.their) === 'C' ? 0 : 1);
+      return c.rng() < spec.p[state] ? 'C' : 'D';
+    }),
+  };
+}
+
+export const gameStrategies = (custom: MemoryOneSpec[] = []): GameStrategy[] => [...GAME_STRATEGIES, ...custom.map(memoryOneStrategy)];
+
 export function payoff(p: Payoffs, mine: Move, theirs: Move): number {
   if (mine === 'C') return theirs === 'C' ? p.R : p.S;
   return theirs === 'C' ? p.T : p.P;
