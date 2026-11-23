@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { Chess } from 'chess.js'
-import { findBlunders, lineToSan, winPercent } from './analysis.ts'
+import { DEFAULT_SCAN, findBlunders, lineToSan, phaseOf, winPercent } from './analysis.ts'
 import { analyseCube } from './bearoff.ts'
 import { BEAROFF_POSITIONS, choiceEquity, correctChoice, CUBE_POSITIONS, cubeChoices, cubeIndicesForDay, MIDGAME_POSITIONS } from './cube.ts'
 import { boardDay, cityClock, detectCity } from './day.ts'
 import type { Evaluation } from './engine.ts'
 import { parseChessCom, parseLichess, type Game } from './games.ts'
-import { bumpStreak, DEFAULT_SETTINGS, gradeCard, mergeStates, pickPuzzles, type PuzzleCard, type State } from './store.ts'
+import { answerStep, blankState, blockSizes, blunderRate, bumpStreak, dealSession, DEFAULT_SETTINGS, grade, mergeStates, type PuzzleCard, type Session, type State } from './store.ts'
+import { ENDGAMES, studyPuzzle } from './endgames.ts'
 
 describe('bearoff cube equities', () => {
   it('last-roll position with 75% wins is exactly the take/pass borderline', () => {
@@ -89,16 +90,37 @@ describe('blunder detection', () => {
     return { cp: 20, best: 'a2a3', pv: ['a2a3'] }
   }
 
+  const opts = { ...DEFAULT_SCAN, scanDepth: 1, verifyDepth: 2, skipMoves: 0 }
+
   it('turns the losing move into a puzzle with the engine move as the answer', async () => {
-    const found = await findBlunders(game, fake, { scanDepth: 1, verifyDepth: 2, threshold: 20, skipMoves: 0 })
-    expect(found).toHaveLength(1)
-    expect(found[0]).toMatchObject({ fen: fenAfter(5), playedSan: 'Nf6', bestUci: 'g7g6', color: 'b', moveNumber: 3 })
-    expect(found[0].drop).toBeGreaterThan(50)
-    expect(lineToSan(found[0].fen, found[0].pv)).toEqual(['g6', 'Qf3', 'Nf6'])
+    const { puzzles, movesChecked } = await findBlunders(game, fake, opts)
+    expect(movesChecked).toBe(3)
+    expect(puzzles).toHaveLength(1)
+    expect(puzzles[0]).toMatchObject({ kind: 'avoid', fen: fenAfter(5), playedSan: 'Nf6', bestUci: 'g7g6', color: 'b', moveNumber: 3 })
+    expect(puzzles[0].drop).toBeGreaterThan(50)
+    expect(lineToSan(puzzles[0].fen, puzzles[0].pv)).toEqual(['g6', 'Qf3', 'Nf6'])
+  })
+  it('makes a punish card instead when several moves were fine', async () => {
+    // Same game, but now the engine says a second move was just as good as g6.
+    const withAlternative = async (fen: string): Promise<Evaluation> => {
+      const e = await fake(fen)
+      return fen === fenAfter(5) ? { ...e, second: { cp: 20 } } : e
+    }
+    const { puzzles } = await findBlunders(game, withAlternative, opts)
+    expect(puzzles).toHaveLength(1)
+    // You now play White, in the position after ...Nf6, and must find the mate.
+    expect(puzzles[0]).toMatchObject({ kind: 'punish', fen: fenAfter(6), color: 'w', bestUci: 'h5f7', playedSan: 'Nf6', repliedSan: 'Qxf7#', bestWin: 100 })
   })
   it('ignores the opponent’s blunders and the skipped opening', async () => {
-    expect(await findBlunders({ ...game, userColor: 'w' }, fake, { scanDepth: 1, verifyDepth: 2, threshold: 20, skipMoves: 0 })).toHaveLength(0)
-    expect(await findBlunders(game, fake)).toHaveLength(0) // default skips the first 6 moves
+    expect((await findBlunders({ ...game, userColor: 'w' }, fake, opts)).puzzles).toHaveLength(0)
+    expect((await findBlunders(game, fake)).puzzles).toHaveLength(0) // default skips the first 6 moves
+  })
+  it('recognises endgames by what is left on the board', () => {
+    expect(phaseOf('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe('middlegame')
+    expect(phaseOf('8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 40')).toBe('endgame')
+    expect(phaseOf('3q2k1/5ppp/8/8/8/8/5PPP/3Q2K1 w - - 0 30')).toBe('endgame')
+    expect(phaseOf('r2q2k1/5ppp/8/8/8/8/5PPP/R2Q2K1 w - - 0 30')).toBe('endgame')
+    expect(phaseOf('r1bq2k1/5ppp/2n5/8/8/2N5/5PPP/R1BQ2K1 w - - 0 20')).toBe('middlegame')
   })
   it('win percentage is symmetric and saturates', () => {
     expect(winPercent({ cp: 0 })).toBe(50)
@@ -146,65 +168,125 @@ describe('mornings', () => {
   })
 })
 
+const card = (id: string, over: Partial<PuzzleCard> = {}): PuzzleCard =>
+  ({ id, kind: 'avoid', phase: 'middlegame', box: 0, due: '2026-11-23', seen: 0, playedAt: 0, ...over }) as PuzzleCard
+const me = { ...DEFAULT_SETTINGS, username: 'me' }
+const base = (over: Partial<State> = {}): State => ({ ...blankState(), settings: me, ...over })
+const DAY = '2026-11-23'
+
 describe('review schedule', () => {
-  const card = (id: string, over: Partial<PuzzleCard> = {}): PuzzleCard =>
-    ({ id, box: 0, due: '2026-11-23', seen: 0, playedAt: 0, ...over }) as PuzzleCard
   it('brings a missed puzzle back tomorrow and spaces out solved ones', () => {
-    expect(gradeCard(card('a'), 'missed', '2026-11-23').due).toBe('2026-11-24')
-    const solved = gradeCard(card('a'), 'solved', '2026-11-23')
-    expect(solved).toMatchObject({ box: 2, due: '2026-11-30', seen: 1 })
-  })
-  it('mixes due reviews with the newest blunders and leaves future cards alone', () => {
-    const cards = [
-      card('old-review', { seen: 1, due: '2026-11-20' }),
-      card('later', { seen: 1, due: '2026-12-01' }),
-      card('new-1', { playedAt: 2 }), card('new-2', { playedAt: 3 }), card('new-3', { playedAt: 1 }),
-    ]
-    expect(pickPuzzles(cards, '2026-11-23', 3)).toEqual(['old-review', 'new-2', 'new-1'])
+    expect(grade(card('a'), 'missed', DAY).due).toBe('2026-11-24')
+    expect(grade(card('a'), 'solved', DAY)).toMatchObject({ box: 2, due: '2026-11-30', seen: 1 })
   })
   it('counts consecutive mornings', () => {
-    expect(bumpStreak({ count: 3, lastDay: '2026-11-22' }, '2026-11-23').count).toBe(4)
-    expect(bumpStreak({ count: 3, lastDay: '2026-11-20' }, '2026-11-23').count).toBe(1)
+    expect(bumpStreak({ count: 3, lastDay: '2026-11-22' }, DAY).count).toBe(4)
+    expect(bumpStreak({ count: 3, lastDay: '2026-11-20' }, DAY).count).toBe(1)
+  })
+  it('measures blunders per 100 moves', () => {
+    expect(blunderRate([])).toBeNull()
+    expect(blunderRate([{ id: 'a', playedAt: 0, moves: 30, blunders: 1 }, { id: 'b', playedAt: 1, moves: 20, blunders: 2 }])).toBeCloseTo(6)
+  })
+})
+
+describe('the session', () => {
+  const cards = [
+    card('review-old', { seen: 1, due: '2026-11-20' }),
+    card('review-later', { seen: 1, due: '2026-12-01' }),
+    card('known', { seen: 3, box: 3, due: '2026-12-10' }),
+    card('new-1', { playedAt: 2 }), card('new-2', { playedAt: 3 }),
+    card('my-endgame', { playedAt: 1, phase: 'endgame' }),
+  ]
+  const session = dealSession(base({ cards }), DAY, 0, 1000)
+  const keys = (b: string) => session.steps.filter((s) => s.block === b).map((s) => s.key)
+
+  it('deals the blocks in order with the right material in each', () => {
+    expect([...new Set(session.steps.map((s) => s.block))]).toEqual(['warmup', 'review', 'fresh', 'endgame', 'cube'])
+    expect(keys('warmup')[0]).toBe('p:known') // a position already learned
+    expect(keys('review')).toEqual(['p:review-old']) // due, but not the one scheduled for later
+    expect(keys('fresh')).toEqual(['p:new-2', 'p:new-1']) // newest game first
+    expect(keys('endgame')[0]).toBe('p:my-endgame') // your own endgame blunders before the study set
+    expect(keys('endgame')).toHaveLength(blockSizes(me).endgame)
+    expect(keys('cube')).toHaveLength(3)
+    expect(new Set(session.steps.map((s) => s.key)).size).toBe(session.steps.length)
+  })
+  it('is the same deal on every device for the same day and state', () => {
+    expect(dealSession(base({ cards }), DAY, 0, 1000)).toEqual(session)
+    expect(dealSession(base({ cards }), DAY, 1, 1000).steps).not.toEqual(session.steps)
+  })
+  it('reschedules answered positions, except warm-ups, and logs the finished session', () => {
+    let state = base({ cards, session })
+    for (const step of session.steps) state = answerStep(state, step.key, step.key === 'p:new-1' ? 'missed' : 'solved', 61000)
+    const byId = (id: string) => state.cards.find((c) => c.id === id)!
+    expect(byId('known')).toMatchObject({ seen: 3, due: '2026-12-10' }) // warm-up: untouched
+    expect(byId('new-1').due).toBe('2026-11-24')
+    expect(byId('new-2').box).toBe(2)
+    const cubeKey = keys('cube')[0]
+    expect(state.reviews[cubeKey]).toMatchObject({ seen: 1, box: 2 })
+    expect(state.session!.seconds).toBe(60)
+    expect(state.history).toEqual([{ day: DAY, round: 0, solved: session.steps.length - 1, total: session.steps.length, seconds: 60 }])
+    expect(state.streak).toEqual({ count: 1, lastDay: DAY })
+    // answering twice changes nothing
+    expect(answerStep(state, 'p:new-1', 'solved', 99000)).toBe(state)
+  })
+  it('brings a missed cube position back before dealing new ones', () => {
+    const next = dealSession(base({ reviews: { 'c:7': { box: 0, due: '2026-11-24', seen: 1 } } }), '2026-11-24', 0, 0)
+    expect(next.steps.filter((s) => s.block === 'cube')[0].key).toBe('c:7')
+  })
+  it('endgame studies are legal positions with a king move as the answer', () => {
+    expect(ENDGAMES.length).toBeGreaterThanOrEqual(30)
+    ENDGAMES.forEach((e, i) => {
+      const c = new Chess(e.fen)
+      const p = studyPuzzle(i)
+      expect(p.color).toBe(c.turn())
+      const move = c.move({ from: e.bestUci.slice(0, 2), to: e.bestUci.slice(2, 4) })
+      expect(move.piece).toBe('k')
+    })
   })
 })
 
 describe('sync merge', () => {
-  const card = (id: string, over: Partial<PuzzleCard> = {}): PuzzleCard =>
-    ({ id, box: 0, due: '2026-11-23', seen: 0, playedAt: 0, ...over }) as PuzzleCard
-  const me = { ...DEFAULT_SETTINGS, username: 'me' }
-  const base = (over: Partial<State> = {}): State =>
-    ({ settings: me, cards: [], scannedGames: [], streak: { count: 0, lastDay: null }, ...over })
-
   it('keeps the more-reviewed copy of each card and the union of everything else', () => {
-    const phone = base({ cards: [card('a', { seen: 2, due: '2026-11-30' }), card('b')], scannedGames: ['g1'], syncCode: 'code' })
-    const laptop = base({ cards: [card('a', { seen: 1 }), card('c')], scannedGames: ['g2'], streak: { count: 4, lastDay: '2026-11-23' } })
+    const phone = base({ cards: [card('a', { seen: 2, due: '2026-11-30' }), card('b')], scannedGames: ['g1'], syncCode: 'code',
+      games: [{ id: 'g1', playedAt: 1, moves: 30, blunders: 1 }], reviews: { 'c:1': { box: 2, due: '2026-11-30', seen: 1 } } })
+    const laptop = base({ cards: [card('a', { seen: 1 }), card('c')], scannedGames: ['g2'], streak: { count: 4, lastDay: DAY },
+      games: [{ id: 'g2', playedAt: 2, moves: 20, blunders: 0 }], reviews: { 'c:1': { box: 0, due: '2026-11-24', seen: 2 } } })
     const m = mergeStates(phone, laptop)
     expect(m.cards.map((c) => c.id).sort()).toEqual(['a', 'b', 'c'])
     expect(m.cards.find((c) => c.id === 'a')!.seen).toBe(2)
     expect(m.scannedGames.sort()).toEqual(['g1', 'g2'])
+    expect(m.games.map((g) => g.id)).toEqual(['g1', 'g2'])
+    expect(m.reviews['c:1'].seen).toBe(2)
     expect(m.streak.count).toBe(4)
     expect(m.syncCode).toBe('code')
-    // merging is symmetric in content and stable once both sides agree
+    // stable once both sides agree
     const { syncCode: _c, ...remote } = m
     expect(mergeStates(m, remote)).toEqual(m)
   })
   it('combines results of the same deal and prefers the newer day', () => {
-    const deal = { day: '2026-11-23', puzzleIds: ['a'], cubeIds: [1], results: {} }
+    const deal: Session = { day: DAY, steps: [{ key: 'p:a', block: 'fresh' }, { key: 'c:1', block: 'cube' }], results: {}, startedAt: 5 }
     const m = mergeStates(
       base({ session: { ...deal, results: { 'p:a': 'solved' } } }),
-      base({ session: { ...deal, results: { 'c:1': 'missed' } } }),
+      base({ session: { ...deal, results: { 'c:1': 'missed' }, startedAt: 2 } }),
     )
     expect(m.session!.results).toEqual({ 'p:a': 'solved', 'c:1': 'missed' })
-    const newer = mergeStates(base({ session: deal }), base({ session: { ...deal, day: '2026-11-24' } }))
-    expect(newer.session!.day).toBe('2026-11-24')
+    expect(m.session!.startedAt).toBe(2)
+    expect(mergeStates(base({ session: deal }), base({ session: { ...deal, day: '2026-11-24' } })).session!.day).toBe('2026-11-24')
   })
   it('a fresh device adopts the synced player; settings follow the latest change', () => {
-    const fresh: State = { settings: DEFAULT_SETTINGS, cards: [], scannedGames: [], streak: { count: 0, lastDay: null }, syncCode: 'code' }
-    const m = mergeStates(fresh, base({ cards: [card('a')], settingsAt: 5 }))
+    const m = mergeStates({ ...blankState(), syncCode: 'code' }, base({ cards: [card('a')], settingsAt: 5 }))
     expect(m.settings.username).toBe('me')
     expect(m.cards).toHaveLength(1)
     expect(m.syncCode).toBe('code')
-    const changed = mergeStates(base({ settingsAt: 9, settings: { ...me, puzzlesPerDay: 8 } }), base({ settingsAt: 5 }))
-    expect(changed.settings.puzzlesPerDay).toBe(8)
+    const changed = mergeStates(base({ settingsAt: 9, settings: { ...me, minutes: 45 } }), base({ settingsAt: 5 }))
+    expect(changed.settings.minutes).toBe(45)
+  })
+  it('reads a copy saved by an older version', () => {
+    const old = { settings: { ...me, puzzlesPerDay: 4 }, cards: [{ id: 'x', box: 1, due: DAY, seen: 1, playedAt: 0 }], scannedGames: [], streak: { count: 2, lastDay: DAY },
+      session: { day: DAY, puzzleIds: ['x'], cubeIds: [1], results: {} } } as unknown as State
+    const m = mergeStates(base(), old)
+    expect(m.cards[0]).toMatchObject({ id: 'x', kind: 'avoid', phase: 'middlegame' })
+    expect(m.session).toBeUndefined()
+    expect(m.streak.count).toBe(2)
   })
 })

@@ -10,6 +10,8 @@ export interface Evaluation {
   best: string
   /** Principal variation in UCI notation. */
   pv: string[]
+  /** Score of the second-best move, when asked for (same point of view). */
+  second?: { cp?: number; mate?: number }
 }
 
 export type EngineChoice = 'auto' | 'full' | 'lite'
@@ -106,27 +108,31 @@ export class Engine {
     })
   }
 
-  /** Evaluate a position. The position must not be checkmate or stalemate. */
-  evaluate(fen: string, depth: number): Promise<Evaluation> {
+  /**
+   * Evaluate a position, which must not be checkmate or stalemate. With
+   * `withSecond`, also report how good the runner-up move is.
+   */
+  evaluate(fen: string, depth: number, withSecond = false): Promise<Evaluation> {
     const run = async (): Promise<Evaluation> => {
       await this.ready
-      let cp: number | undefined
-      let mate: number | undefined
+      let top: { cp?: number; mate?: number } = {}
+      let second: { cp?: number; mate?: number } | undefined
       let pv: string[] = []
       const done = this.waitFor(
         (l) => l.startsWith('bestmove'),
         (l) => {
-          const m = /^info .*?score (cp|mate) (-?\d+)(?: (lowerbound|upperbound))?.* pv (.+)$/.exec(l)
-          if (!m || m[3]) return
-          if (m[1] === 'cp') { cp = Number(m[2]); mate = undefined } else { mate = Number(m[2]); cp = undefined }
-          pv = m[4].trim().split(' ')
+          const m = /^info .*?multipv (\d+) score (cp|mate) (-?\d+)(?: (lowerbound|upperbound))?.* pv (.+)$/.exec(l)
+          if (!m || m[4]) return
+          const score = m[2] === 'cp' ? { cp: Number(m[3]) } : { mate: Number(m[3]) }
+          if (m[1] === '1') { top = score; pv = m[5].trim().split(' ') } else if (m[1] === '2') second = score
         },
       )
+      this.worker.postMessage(`setoption name MultiPV value ${withSecond ? 2 : 1}`)
       this.worker.postMessage(`position fen ${fen}`)
       this.worker.postMessage(`go depth ${depth}`)
       const line = await done
       const best = line.split(' ')[1]
-      return { cp, mate, best, pv: pv.length ? pv : [best] }
+      return { ...top, best, pv: pv.length ? pv : [best], second: withSecond ? second : undefined }
     }
     const result = this.queue.then(run, run)
     this.queue = result.catch(() => undefined)

@@ -38,7 +38,8 @@ export function SettingsForm({ settings, first, onSave, onCancel, sync }: Props)
           <h2>Where do you play?</h2>
           <p className="context">
             Each morning the board reads your latest public games, finds the moves that cost you most, and
-            hands them back as puzzles. Stockfish runs in this browser; nothing is uploaded.
+            hands them back as a timed session: warm-up, blunder review, fresh tactics, endgames, then a few
+            backgammon cube decisions. Stockfish runs in this browser; your games are not uploaded anywhere.
           </p>
         </>
       )}
@@ -73,9 +74,11 @@ export function SettingsForm({ settings, first, onSave, onCancel, sync }: Props)
           </select>
         </label>
         <label>
-          Chess puzzles
-          <select value={draft.puzzlesPerDay} onChange={(e) => set('puzzlesPerDay', Number(e.target.value))}>
-            {[2, 3, 4, 5, 6, 8].map((n) => <option key={n}>{n}</option>)}
+          Session length
+          <select value={draft.minutes} onChange={(e) => set('minutes', Number(e.target.value) as Settings['minutes'])}>
+            <option value={15}>15 minutes</option>
+            <option value={30}>30 minutes</option>
+            <option value={45}>45 minutes</option>
           </select>
         </label>
         <label>

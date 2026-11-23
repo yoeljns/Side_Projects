@@ -16,29 +16,45 @@ export function formatEval(e: Pick<Evaluation, 'cp' | 'mate'>, flip = false): st
   return `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`
 }
 
+/**
+ * avoid:  the position before your blunder; find the move you should have played.
+ * punish: the position after your blunder; switch sides and find the refutation.
+ *         Used when the position before had several good moves, so "find the
+ *         best move" would be a guessing game.
+ * study:  a theoretical endgame from the built-in set.
+ */
+export type PuzzleKind = 'avoid' | 'punish' | 'study'
+
 export interface Puzzle {
   id: string
+  kind: PuzzleKind
+  phase: 'middlegame' | 'endgame'
   gameId: string
   gameUrl: string
   opponent: string
   speed: string
   playedAt: number
-  /** Position before your move. */
+  /** The position to solve. */
   fen: string
+  /** The side you play in the puzzle. */
   color: 'w' | 'b'
   moveNumber: number
-  /** What you played, in SAN and UCI. */
+  /** Your blunder in the game, in SAN and UCI. */
   playedSan: string
   playedUci: string
+  /** punish: what your opponent actually answered. */
+  repliedSan?: string
+  /** study: what the side to move is playing for. */
+  goal?: 'win' | 'draw'
   /** Engine's choice and its line, UCI. */
   bestUci: string
   pv: string[]
-  /** Evaluations from your point of view: before (with best play) and after your move. */
+  /** Evaluations from the solver's point of view: with best play, and after the game move. */
   evalBest: string
   evalPlayed: string
-  /** Your win percentage after the engine's move (used to accept equally good answers). */
+  /** The solver's win percentage after the engine's move (used to accept equally good answers). */
   bestWin: number
-  /** Win-percentage points your move gave away. */
+  /** Win-percentage points the blunder gave away. */
   drop: number
 }
 
@@ -51,19 +67,34 @@ export interface ScanOptions {
   threshold: number
   /** Skip the first N full moves (opening theory makes poor puzzles). */
   skipMoves: number
+  /** If the runner-up move is within this many win-% points of the best, there is no single best move. */
+  alternativeMargin: number
 }
 
-export const DEFAULT_SCAN: ScanOptions = { scanDepth: 12, verifyDepth: 16, threshold: 20, skipMoves: 6 }
+export const DEFAULT_SCAN: ScanOptions = { scanDepth: 12, verifyDepth: 16, threshold: 20, skipMoves: 6, alternativeMargin: 8 }
 
-type Evaluate = (fen: string, depth: number) => Promise<Evaluation>
+type Evaluate = (fen: string, depth: number, withSecond?: boolean) => Promise<Evaluation>
 
 const isOver = (fen: string) => new Chess(fen).isGameOver()
+
+/** Few pieces left: no queens and at most six other pieces, or at most four pieces of any kind. */
+export function phaseOf(fen: string): 'middlegame' | 'endgame' {
+  const pieces = fen.split(' ')[0].replace(/[^a-zA-Z]/g, '').replace(/[kKpP]/g, '')
+  const queens = pieces.replace(/[^qQ]/g, '').length
+  return pieces.length <= 4 || (queens === 0 && pieces.length <= 6) ? 'endgame' : 'middlegame'
+}
+
+export interface ScanResult {
+  puzzles: Puzzle[]
+  /** How many of your moves were checked, for the blunder rate. */
+  movesChecked: number
+}
 
 /**
  * Replay a game and return the moments where the user threw away a playable
  * position. `evaluate` is injected so this stays testable without the engine.
  */
-export async function findBlunders(game: Game, evaluate: Evaluate, opts: ScanOptions = DEFAULT_SCAN): Promise<Puzzle[]> {
+export async function findBlunders(game: Game, evaluate: Evaluate, opts: ScanOptions = DEFAULT_SCAN): Promise<ScanResult> {
   const chess = new Chess(game.initialFen)
   const fens = [chess.fen()]
   const moves: { san: string; uci: string; color: 'w' | 'b' }[] = []
@@ -75,9 +106,9 @@ export async function findBlunders(game: Game, evaluate: Evaluate, opts: ScanOpt
 
   const firstPly = opts.skipMoves * 2
   const cache = new Map<number, Evaluation | null>()
-  const evalAt = async (i: number, depth: number): Promise<Evaluation | null> => {
+  const evalAt = async (i: number, depth: number, withSecond = false): Promise<Evaluation | null> => {
     if (isOver(fens[i])) return null
-    return evaluate(fens[i], depth)
+    return evaluate(fens[i], depth, withSecond)
   }
   const scan = async (i: number) => {
     if (!cache.has(i)) cache.set(i, await evalAt(i, opts.scanDepth))
@@ -91,8 +122,10 @@ export async function findBlunders(game: Game, evaluate: Evaluate, opts: ScanOpt
   }
 
   const puzzles: Puzzle[] = []
+  let movesChecked = 0
   for (let i = firstPly; i < moves.length; i++) {
     if (moves[i].color !== game.userColor) continue
+    movesChecked++
     const before = await scan(i)
     if (!before) continue
     const beforeWin = winPercent(before)
@@ -103,7 +136,7 @@ export async function findBlunders(game: Game, evaluate: Evaluate, opts: ScanOpt
     if (before.best === moves[i].uci) continue
 
     // Candidate: confirm at higher depth so shallow-search noise does not become a puzzle.
-    const deepBefore = await evalAt(i, opts.verifyDepth)
+    const deepBefore = await evalAt(i, opts.verifyDepth, true)
     const deepAfter = await evalAt(i + 1, opts.verifyDepth)
     if (!deepBefore || deepBefore.best === moves[i].uci) continue
     const best = winPercent(deepBefore)
@@ -111,27 +144,50 @@ export async function findBlunders(game: Game, evaluate: Evaluate, opts: ScanOpt
     const drop = best - played
     if (best < 30 || drop < opts.threshold) continue
 
-    puzzles.push({
-      id: `${game.id}:${i}`,
+    const common = {
       gameId: game.id,
       gameUrl: game.url,
       opponent: game.opponent,
       speed: game.speed,
       playedAt: game.playedAt,
-      fen: fens[i],
-      color: game.userColor,
       moveNumber: Math.floor(i / 2) + 1,
       playedSan: moves[i].san,
       playedUci: moves[i].uci,
-      bestUci: deepBefore.best,
-      pv: deepBefore.pv,
-      evalBest: formatEval(deepBefore),
-      evalPlayed: deepAfter ? formatEval(deepAfter, true) : new Chess(fens[i + 1]).isCheckmate() ? '#' : '0.0',
-      bestWin: best,
       drop: Math.round(drop),
-    })
+    }
+    const severalGoodMoves = deepBefore.second !== undefined && best - winPercent(deepBefore.second) <= opts.alternativeMargin
+    if (severalGoodMoves && deepAfter) {
+      puzzles.push({
+        ...common,
+        id: `${game.id}:${i}:punish`,
+        kind: 'punish',
+        phase: phaseOf(fens[i + 1]),
+        fen: fens[i + 1],
+        color: game.userColor === 'w' ? 'b' : 'w',
+        repliedSan: moves[i + 1]?.san,
+        bestUci: deepAfter.best,
+        pv: deepAfter.pv,
+        evalBest: formatEval(deepAfter),
+        evalPlayed: formatEval(deepBefore, true),
+        bestWin: winPercent(deepAfter),
+      })
+    } else {
+      puzzles.push({
+        ...common,
+        id: `${game.id}:${i}`,
+        kind: 'avoid',
+        phase: phaseOf(fens[i]),
+        fen: fens[i],
+        color: game.userColor,
+        bestUci: deepBefore.best,
+        pv: deepBefore.pv,
+        evalBest: formatEval(deepBefore),
+        evalPlayed: deepAfter ? formatEval(deepAfter, true) : new Chess(fens[i + 1]).isCheckmate() ? '#' : '0.0',
+        bestWin: best,
+      })
+    }
   }
-  return puzzles
+  return { puzzles, movesChecked }
 }
 
 /** Convert a UCI line to SAN from a given position (stops at the first illegal move). */

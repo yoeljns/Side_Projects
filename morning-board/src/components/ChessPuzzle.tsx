@@ -20,12 +20,14 @@ function ago(ts: number): string {
 
 interface Props {
   puzzle: Puzzle
+  /** Name of the session block this position belongs to. */
+  block: string
   engine: Engine
   isReview: boolean
   onDone: (result: StepResult) => void
 }
 
-export function ChessPuzzle({ puzzle, engine, isReview, onDone }: Props) {
+export function ChessPuzzle({ puzzle, block, engine, isReview, onDone }: Props) {
   const [status, setStatus] = useState<Status>('thinking')
   const [fen, setFen] = useState(puzzle.fen)
   const [selected, setSelected] = useState<string | null>(null)
@@ -42,6 +44,7 @@ export function ChessPuzzle({ puzzle, engine, isReview, onDone }: Props) {
   const done = status === 'solved' || status === 'revealed'
   const canMove = status === 'thinking' || status === 'wrong'
   const you = puzzle.color === 'w' ? 'White' : 'Black'
+  const { kind } = puzzle
 
   async function tryMove(from: string, to: string): Promise<boolean> {
     if (!canMove) return false
@@ -66,8 +69,9 @@ export function ChessPuzzle({ puzzle, engine, isReview, onDone }: Props) {
     }
 
     if (uci === puzzle.bestUci) accept()
-    else if (uci === puzzle.playedUci) reject(`${move.san} is what you played in the game.`)
+    else if (kind === 'avoid' && uci === puzzle.playedUci) reject(`${move.san} is what you played in the game.`)
     else if (chess.isCheckmate()) accept()
+    else if (chess.isGameOver() && puzzle.goal === 'draw') accept()
     else if (chess.isGameOver()) reject(`${move.san} only draws.`)
     else {
       setStatus('checking')
@@ -75,7 +79,7 @@ export function ChessPuzzle({ puzzle, engine, isReview, onDone }: Props) {
         const reply = await engine.evaluate(chess.fen(), engine.info.scanDepth + 2)
         const mine = 100 - winPercent(reply)
         if (puzzle.bestWin - mine <= TOLERANCE) accept()
-        else reject(`${move.san} gives too much away. Look again.`)
+        else reject(kind === 'study' ? `${move.san} lets it slip. Only one move works.` : `${move.san} gives too much away. Look again.`)
       } catch {
         reject('The engine could not check that move. Try again.')
       }
@@ -101,14 +105,36 @@ export function ChessPuzzle({ puzzle, engine, isReview, onDone }: Props) {
 
   return (
     <section className="step">
-      <p className="eyebrow">{isReview ? 'Back for review' : 'From your games'}</p>
-      <h2>{you} to play. Find what you missed.</h2>
-      <p className="context">
-        Move {puzzle.moveNumber} against{' '}
-        <a href={puzzle.gameUrl} target="_blank" rel="noreferrer">{puzzle.opponent}</a>
-        {' '}({puzzle.speed}, {ago(puzzle.playedAt)}). You played <strong>{puzzle.playedSan}</strong> and
-        gave up about {puzzle.drop} points of winning chances.
-      </p>
+      <p className="eyebrow">{block}{isReview && block !== 'Blunder review' ? ' · back for review' : ''}</p>
+      {kind === 'avoid' && (
+        <>
+          <h2>{you} to play. Find what you missed.</h2>
+          <p className="context">
+            Move {puzzle.moveNumber} against{' '}
+            <a href={puzzle.gameUrl} target="_blank" rel="noreferrer">{puzzle.opponent}</a>
+            {' '}({puzzle.speed}, {ago(puzzle.playedAt)}). You played <strong>{puzzle.playedSan}</strong> and
+            gave up about {puzzle.drop} points of winning chances.
+          </p>
+        </>
+      )}
+      {kind === 'punish' && (
+        <>
+          <h2>Switch sides: {you} to play and punish your move.</h2>
+          <p className="context">
+            Move {puzzle.moveNumber} against{' '}
+            <a href={puzzle.gameUrl} target="_blank" rel="noreferrer">{puzzle.opponent}</a>
+            {' '}({puzzle.speed}, {ago(puzzle.playedAt)}). Several moves were fine, but you chose{' '}
+            <strong>{puzzle.playedSan}</strong>, which cost about {puzzle.drop} points of winning chances. Find
+            the reply that proves it.
+          </p>
+        </>
+      )}
+      {kind === 'study' && (
+        <>
+          <h2>{you} to play and {puzzle.goal === 'win' ? 'win' : 'hold the draw'}.</h2>
+          <p className="context">A pawn endgame where exactly one move {puzzle.goal === 'win' ? 'wins' : 'draws'}.</p>
+        </>
+      )}
 
       <div className="board" data-testid="chessboard">
         <Chessboard
@@ -148,7 +174,12 @@ export function ChessPuzzle({ puzzle, engine, isReview, onDone }: Props) {
               {status === 'solved' && answer !== line[0] && <> Stockfish's first choice was {line[0]}; yours is just as good.</>}
             </p>
             <p className="muted">
-              Best line: {line.join(' ')} ({puzzle.evalBest} for you). In the game, {puzzle.playedSan} left you at {puzzle.evalPlayed}.
+              Best line: {line.join(' ')}
+              {kind === 'study' ? `, ${puzzle.evalBest}.` : ` (${puzzle.evalBest} for ${kind === 'punish' ? you : 'you'}).`}
+              {kind === 'avoid' && <> In the game, {puzzle.playedSan} left you at {puzzle.evalPlayed}.</>}
+              {kind === 'punish' && puzzle.repliedSan && (
+                <> In the game your opponent answered {puzzle.repliedSan}{puzzle.repliedSan === line[0] ? ', the same move' : ''}.</>
+              )}
             </p>
           </div>
         )}

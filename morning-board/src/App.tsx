@@ -3,15 +3,17 @@ import { ChessPuzzle } from './components/ChessPuzzle.tsx'
 import { CubeQuiz } from './components/CubeQuiz.tsx'
 import { SettingsForm } from './components/SettingsForm.tsx'
 import { DEFAULT_SCAN, findBlunders } from './lib/analysis.ts'
-import { CUBE_POSITIONS, cubeIndicesForDay } from './lib/cube.ts'
+import { CUBE_POSITIONS } from './lib/cube.ts'
+import { ENDGAMES, studyPuzzle } from './lib/endgames.ts'
+import { Progress } from './components/Progress.tsx'
+import { SessionClock } from './components/SessionClock.tsx'
 import { boardDay, CITIES, cityClock, greeting, resolveCity, type City } from './lib/day.ts'
 import { getEngine } from './lib/engine.ts'
 import { fetchRecentGames, PlayerNotFound } from './lib/games.ts'
 import {
-  bumpStreak, gradeCard, loadState, mergeStates, pickPuzzles, saveState,
-  type PuzzleCard, type Session, type Settings, type State, type StepResult,
+  answerStep, BLOCK_INFO, BLOCKS, dealSession, dueCards, hasEnoughCards, loadState, mergeStates, saveState,
+  type PuzzleCard, type Settings, type State, type StepResult,
 } from './lib/store.ts'
-
 import { codeFromLocation, isSyncCode, newSyncCode, pull, push, syncAvailable } from './lib/sync.ts'
 
 type Prep = { status: 'idle' } | { status: 'working'; message: string } | { status: 'error'; message: string }
@@ -41,6 +43,7 @@ export default function App() {
   const [prep, setPrep] = useState<Prep>({ status: 'idle' })
   const [notice, setNotice] = useState('')
   const [editing, setEditing] = useState(false)
+  const [showProgress, setShowProgress] = useState(false)
   const stateRef = useRef(state)
   const running = useRef(false)
   const now = useNow(20000)
@@ -103,7 +106,7 @@ export default function App() {
     setNotice('')
     try {
       const { settings } = stateRef.current
-      const enough = () => pickPuzzles(stateRef.current.cards, day, settings.puzzlesPerDay).length >= settings.puzzlesPerDay
+      const enough = () => hasEnoughCards(stateRef.current, day)
       if (!enough()) {
         try {
           setPrep({ status: 'working', message: 'Fetching your recent games…' })
@@ -118,29 +121,27 @@ export default function App() {
           for (let i = 0; i < fresh.length && !enough(); i++) {
             const g = fresh[i]
             setPrep({ status: 'working', message: `Looking for blunders: game ${i + 1} of ${fresh.length}, against ${g.opponent}` })
-            const found = await findBlunders(g, (fen, depth) => engine().evaluate(fen, depth), { ...DEFAULT_SCAN, scanDepth, verifyDepth })
-            const cards: PuzzleCard[] = found.map((p) => ({ ...p, box: 0, due: day, seen: 0 }))
-            update((s) => ({ ...s, cards: [...s.cards, ...cards], scannedGames: [...s.scannedGames, g.id].slice(-400) }))
+            const found = await findBlunders(g, (fen, depth, second) => engine().evaluate(fen, depth, second), { ...DEFAULT_SCAN, scanDepth, verifyDepth })
+            const cards: PuzzleCard[] = found.puzzles.map((p) => ({ ...p, box: 0, due: day, seen: 0 }))
+            update((s) => ({
+              ...s,
+              cards: [...s.cards, ...cards],
+              scannedGames: [...s.scannedGames, g.id].slice(-400),
+              games: [...s.games, { id: g.id, playedAt: g.playedAt, moves: found.movesChecked, blunders: cards.length }]
+                .sort((a, b) => a.playedAt - b.playedAt).slice(-400),
+            }))
           }
         } catch (e) {
           const message = e instanceof Error ? e.message : 'Something went wrong reading your games.'
-          // A wrong username, or nothing at all to show: stop here. Otherwise carry on with what is already saved.
-          const nothing = pickPuzzles(stateRef.current.cards, day, 1).length === 0 && settings.cubesPerDay === 0
-          if (e instanceof PlayerNotFound || nothing) {
+          // A wrong username stops here. Anything else: carry on with what is already saved.
+          if (e instanceof PlayerNotFound) {
             setPrep({ status: 'error', message })
             return
           }
           setNotice(`Could not read new games (${message}) Today's board uses what was already saved.`)
         }
       }
-      const s: Session = {
-        day,
-        round,
-        puzzleIds: pickPuzzles(stateRef.current.cards, day, settings.puzzlesPerDay),
-        cubeIds: cubeIndicesForDay(round ? `${day}/round-${round}` : day, settings.cubesPerDay),
-        results: {},
-      }
-      update((st) => ({ ...st, session: s }))
+      update((st) => ({ ...st, session: dealSession(st, day, round, Date.now()) }))
       setPrep({ status: 'idle' })
     } finally {
       running.current = false
@@ -160,7 +161,8 @@ export default function App() {
       cards: samePlayer ? s.cards : [],
       scannedGames: samePlayer ? s.scannedGames : [],
       // A different player or a different daily size means a new deal.
-      session: samePlayer && next.puzzlesPerDay === settings.puzzlesPerDay && next.cubesPerDay === settings.cubesPerDay ? s.session : undefined,
+      games: samePlayer ? s.games : [],
+      session: samePlayer && next.minutes === settings.minutes && next.cubesPerDay === settings.cubesPerDay ? s.session : undefined,
     }))
     setEditing(false)
     setPrep({ status: 'idle' })
@@ -175,25 +177,17 @@ export default function App() {
   }
 
   function finishStep(key: string, result: StepResult) {
-    update((s) => {
-      if (!s.session) return s
-      const results = { ...s.session.results, [key]: result }
-      const cards = key.startsWith('p:')
-        ? s.cards.map((c) => (c.id === key.slice(2) ? gradeCard(c, result, s.session!.day) : c))
-        : s.cards
-      const total = s.session.puzzleIds.length + s.session.cubeIds.length
-      const streak = Object.keys(results).length >= total ? bumpStreak(s.streak, s.session.day) : s.streak
-      return { ...s, cards, streak, session: { ...s.session, results } }
-    })
+    update((s) => answerStep(s, key, result, Date.now()))
     window.scrollTo({ top: 0 })
   }
 
-  const steps = ready
-    ? [...session.puzzleIds.map((id) => `p:${id}`), ...session.cubeIds.map((i) => `c:${i}`)]
-    : []
-  const current = steps.find((k) => !(k in (session?.results ?? {})))
-  const card = current?.startsWith('p:') ? state.cards.find((c) => c.id === current.slice(2)) : undefined
-  const solved = (prefix: string) => steps.filter((k) => k.startsWith(prefix) && session?.results[k] === 'solved').length
+  const steps = ready ? session.steps : []
+  const current = steps.find((s) => !(s.key in session!.results))
+  const card = current?.key.startsWith('p:') ? state.cards.find((c) => c.id === current.key.slice(2)) : undefined
+  const study = current?.key.startsWith('eg:') && ENDGAMES[Number(current.key.slice(3))] ? studyPuzzle(Number(current.key.slice(3))) : undefined
+  const blocks = BLOCKS.map((b) => ({ block: b, steps: steps.filter((s) => s.block === b) })).filter((b) => b.steps.length > 0)
+  const solvedIn = (b: (typeof blocks)[number]) => b.steps.filter((s) => session!.results[s.key] === 'solved').length
+  const waiting = ready ? dueCards(state.cards, day) : { review: [], fresh: [] }
 
   return (
     <div className="page">
@@ -211,18 +205,30 @@ export default function App() {
         </div>
       </header>
 
-      {steps.length > 0 && (
-        <ol className="dots" aria-label="Today's progress">
-          {steps.map((k) => (
-            <li key={k} className={`${k[0] === 'c' ? 'cube ' : ''}${session!.results[k] ?? (k === current ? 'now' : '')}`} />
-          ))}
-        </ol>
+      {steps.length > 0 && !editing && !showProgress && (
+        <div className="plan">
+          <div className="plan-head">
+            <span>{current ? <><b>{BLOCK_INFO[current.block].label}</b> · block {blocks.findIndex((b) => b.block === current.block) + 1} of {blocks.length}</> : <b>Session complete</b>}</span>
+            <SessionClock startedAt={session!.startedAt} frozenAt={session!.seconds} minutes={settings.minutes} />
+          </div>
+          <ol className="dots" aria-label="Today's progress">
+            {blocks.map((b) => (
+              <li key={b.block} className="group" title={BLOCK_INFO[b.block].label}>
+                {b.steps.map((s) => (
+                  <i key={s.key} className={session!.results[s.key] ?? (s.key === current?.key ? 'now' : '')} />
+                ))}
+              </li>
+            ))}
+          </ol>
+        </div>
       )}
 
       <main>
         {notice && <p className="notice">{notice}</p>}
 
-        {!settings.username || editing ? (
+        {showProgress ? (
+          <Progress state={state} day={day} onClose={() => setShowProgress(false)} />
+        ) : !settings.username || editing ? (
           !syncReady ? (
             <section className="step center"><div className="spinner" aria-hidden="true" /><p className="muted">Fetching your board from your other device…</p></section>
           ) : (
@@ -247,41 +253,58 @@ export default function App() {
               <button className="primary" onClick={() => setPrep({ status: 'idle' })}>Try again</button>
             </div>
           </section>
-        ) : !ready ? null : current && card ? (
-          <ChessPuzzle key={current} puzzle={card} engine={getEngine(settings.engine)} isReview={card.seen > 0} onDone={(r) => finishStep(current, r)} />
-        ) : current?.startsWith('c:') ? (
-          <CubeQuiz key={current} position={CUBE_POSITIONS[Number(current.slice(2))]} onDone={(r) => finishStep(current, r)} />
+        ) : !ready ? null : current && (card ?? study) ? (
+          <ChessPuzzle
+            key={current.key}
+            puzzle={(card ?? study)!}
+            block={BLOCK_INFO[current.block].label}
+            engine={getEngine(settings.engine)}
+            isReview={(card?.seen ?? state.reviews[current.key]?.seen ?? 0) > 0}
+            onDone={(r) => finishStep(current.key, r)}
+          />
+        ) : current?.key.startsWith('c:') && CUBE_POSITIONS[Number(current.key.slice(2))] ? (
+          <CubeQuiz key={current.key} position={CUBE_POSITIONS[Number(current.key.slice(2))]} onDone={(r) => finishStep(current.key, r)} />
         ) : current ? (
-          // A saved puzzle that no longer exists (cleared storage): skip it.
-          <section className="step center"><button className="primary" onClick={() => finishStep(current, 'missed')}>Skip</button></section>
+          // A saved position that no longer exists (cleared storage, or a changed set): skip it.
+          <section className="step center"><button className="primary" onClick={() => finishStep(current.key, 'missed')}>Skip</button></section>
         ) : (
           <section className="step center done">
             <h2>{session.round ? 'Extra round done.' : "That's the board for today."}</h2>
-            {session.puzzleIds.length > 0 ? (
-              <p>Chess: {solved('p:')} of {session.puzzleIds.length} found first time.</p>
-            ) : (
+            <table className="summary">
+              <tbody>
+                {blocks.map((b) => (
+                  <tr key={b.block}><th scope="row">{BLOCK_INFO[b.block].label}</th><td>{solvedIn(b)} of {b.steps.length}</td></tr>
+                ))}
+                <tr><th scope="row">Time</th><td>{Math.floor((session.seconds ?? 0) / 60)} min {(session.seconds ?? 0) % 60} s</td></tr>
+              </tbody>
+            </table>
+            {!steps.some((s) => s.key.startsWith('p:')) && (
               <p>No blunders worth a puzzle in your last {settings.gamesToScan * ((session.round ?? 0) + 1)} games. Play a few more and they will turn up here.</p>
             )}
-            {session.cubeIds.length > 0 && <p>Cube: {solved('c:')} of {session.cubeIds.length} right.</p>}
             <p className="muted">
-              Missed positions come back tomorrow; solved ones return after a few days. The next board is dealt at
-              04:00 {CITIES[city].label} time.
+              Missed positions come back tomorrow; solved ones return after a few days.
+              {waiting.review.length + waiting.fresh.length > 0 && <> {waiting.review.length + waiting.fresh.length} more of your blunders are waiting.</>}
+              {' '}The next board is dealt at 04:00 {CITIES[city].label} time.
             </p>
             <div className="actions">
+              <button className="ghost" onClick={() => setShowProgress(true)}>See progress</button>
               <button className="ghost" onClick={() => void prepare(day, (session.round ?? 0) + 1)}>Deal another round</button>
             </div>
           </section>
         )}
       </main>
 
-      {settings.username && !editing && prep.status !== 'working' && (
+      {settings.username && !editing && !showProgress && prep.status !== 'working' && (
         <footer>
           <span>
             {settings.username} on {settings.site === 'lichess' ? 'Lichess' : 'Chess.com'} · {state.cards.length} {state.cards.length === 1 ? 'blunder' : 'blunders'} collected
             {' '}· {getEngine(settings.engine).info.label}
             {state.syncCode && syncNote && <> · {syncNote}</>}
           </span>
-          <button className="link" onClick={() => setEditing(true)}>Settings</button>
+          <span className="links">
+            <button className="link" onClick={() => setShowProgress(true)}>Progress</button>
+            <button className="link" onClick={() => setEditing(true)}>Settings</button>
+          </span>
         </footer>
       )}
     </div>

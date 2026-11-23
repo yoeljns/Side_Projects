@@ -1,0 +1,28 @@
+/* Rollout, rule-of-thumb and Shorts additions to the cube quiz. Uses the tokens from index.css. */
+.cube-extras { margin-top: 12px; display: grid; gap: 10px; font-size: 0.92rem; line-height: 1.5; }
+.cube-extras p { margin: 0; }
+.cube-note { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); }
+.cube-note b { color: var(--ink); font-weight: 600; }
+.cube-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.cube-tools button { padding: 8px 14px; font-size: 0.9rem; }
+.rollout { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.rollout-bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 8px 0 2px; }
+.rollout-bar span { display: block; height: 100%; background: var(--accent); }
+.rollout-figures { display: flex; flex-wrap: wrap; gap: 6px 22px; font-variant-numeric: tabular-nums; }
+.rollout-figures b { font-size: 1.05rem; }
+
+.short-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.6); display: grid; place-items: center; padding: 16px; overflow-y: auto; }
+.short-panel { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; gap: 18px; max-width: 760px; width: 100%; align-items: flex-start; }
+.short-canvas { height: min(74vh, 640px); aspect-ratio: 9 / 16; width: auto; border-radius: 10px; border: 1px solid var(--line); flex: none; background: var(--bg); }
+.short-side { flex: 1; min-width: 0; display: grid; gap: 10px; align-content: start; }
+.short-side h3 { margin: 0; font-size: 1.05rem; }
+.short-side p { margin: 0; font-size: 0.88rem; line-height: 1.45; }
+.short-side .small { font-size: 0.8rem; }
+.short-side input[type='range'] { width: 100%; padding: 0; accent-color: var(--accent); }
+.short-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.short-buttons button { padding: 8px 14px; font-size: 0.9rem; }
+@media (max-width: 620px) {
+  .short-panel { flex-direction: column; align-items: center; }
+  .short-canvas { height: min(56vh, 520px); }
+  .short-side { width: 100%; }
+}
