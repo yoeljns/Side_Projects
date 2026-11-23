@@ -1,25 +1,29 @@
 # Side Projects
 
-One repo, one folder per project. Each folder is a self-contained app with its own
-`package.json` and deploys to Vercel as its own project.
+One folder per project. Each project is self-contained (its own `package.json`) and deploys as its own
+Vercel project.
 
-| Project | Folder | What it is |
-| --- | --- | --- |
-| Padel Lab | [`padel-lab/`](padel-lab/) | Position heatmaps, net time and rally lengths from a phone video of a padel match |
+| Project | What it is |
+| --- | --- |
+| [`morning-board`](morning-board) | A timed morning training session: spaced-repetition cards from your own chess blunders (Stockfish in the browser), endgame studies, and backgammon cube decisions with rollouts and a Shorts maker. Follows London and Istanbul mornings. |
+| [`padel-lab`](padel-lab) | Position heatmaps, time at the net and rally lengths from a phone video of a padel match, with a match log against your level. Runs entirely in the browser. |
+| [`strategy-arena`](strategy-arena) | Strategies play repeated games, auctions and bargaining against each other, tournament style, with an animated 9:16 playback of every run. |
 
-## Deploying a project on Vercel
+## Deploying on Vercel
 
-Every project gets its own Vercel project pointing at this repo:
+Create one Vercel project per folder, all pointing at this repository:
 
-1. Vercel → **Add New… → Project** → import this repository.
-2. Set **Root Directory** to the project's folder (e.g. `padel-lab`).
-3. Leave the build settings on auto-detect and deploy.
+1. Add New → Project → import this repository.
+2. Set **Root Directory** to the project folder (for example `morning-board`).
+3. Leave the framework preset on Vite; the default build command and output directory work.
 
-Each folder's `vercel.json` has an `ignoreCommand`, so a push that only touches
-another project does not rebuild this one.
+Repeat for each folder. Each project's `vercel.json` skips the build when a push did not touch that folder,
+so changing one project does not redeploy the others.
+
+GitHub Actions runs every project's tests and build on each push (`.github/workflows/ci.yml`).
 
 ## Adding a project
 
-Create a new top-level folder with its own `package.json` and `vercel.json`
-(copy `padel-lab/vercel.json` and adjust `framework`), add a row to the table
-above, and import the repo into Vercel again with the new Root Directory.
+Create a new top-level folder with its own `package.json`, add a row to the table above, add the folder to
+the matrix in `.github/workflows/ci.yml`, copy a `vercel.json` into it, and create a Vercel project with
+that folder as its Root Directory.
