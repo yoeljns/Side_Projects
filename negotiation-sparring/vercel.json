@@ -1,0 +1,8 @@
+{
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
+  "functions": {
+    "api/negotiate.ts": {
+      "maxDuration": 60
+    }
+  }
+}
