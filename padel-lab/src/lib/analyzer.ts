@@ -3,16 +3,15 @@
 import type { Pt } from './court';
 import { attachAudio, EnvelopeBuilder, type AudioTap } from './audio';
 import { PersonDetector } from './detector';
-import { homography, project, type H } from './homography';
-import { buildTiles, roiTile, type Tile } from './tiles';
-import { onCourt, Tracker, type Assignment, type Box, type CourtDet, type Sample } from './tracker';
+import { homography, type H } from './homography';
+import { Sampler } from './sampler';
+import { buildTiles, type Tile } from './tiles';
+import type { Assignment, Sample } from './tracker';
 import { setAudible } from './audio';
 
 /** Seconds of media time between position samples. */
 const SAMPLE_DT = 0.2;
 const START_RATE = 4;
-/** The whole court is re-scanned at least every this many samples. */
-const FULL_SCAN_EVERY = 5;
 
 export type Calibration = {
   /** Four tapped points, normalised to 0..1 of the video frame. */
@@ -51,7 +50,7 @@ export function calibrationMatrices(c: Calibration, W: number, Hh: number): { to
 }
 
 export class Analyzer {
-  private tracker = new Tracker();
+  private sampler: Sampler | null = null;
   private detector: PersonDetector | null = null;
   private tap: AudioTap | null = null;
   private env: EnvelopeBuilder | null = null;
@@ -60,12 +59,9 @@ export class Analyzer {
   private running = false;
   private lastT = -Infinity;
   private maxT = 0;
-  private frames = 0;
   private gaps: number[] = [];
   private thumbs: (string | null)[] = [null, null, null, null];
   private thumbScore = [0, 0, 0, 0];
-  /** Where each player was in the previous sample (frame pixels), if seen. */
-  private lastBox: (Box | null)[] = [null, null, null, null];
   private thumbCanvas = document.createElement('canvas');
   private syncTimer = 0;
   private wakeLock: { release(): Promise<void> } | null = null;
@@ -113,6 +109,7 @@ export class Analyzer {
     // Loading includes a warm-up pass (the first inference can take seconds),
     // done here so no footage slips past once the video is moving.
     this.detector = await PersonDetector.create(v, this.tiles);
+    this.sampler = new Sampler(this.detector, this.toCourt, this.tiles, v.videoWidth, v.videoHeight);
     v.playbackRate = START_RATE;
     v.addEventListener('ended', this.finish);
     document.addEventListener('visibilitychange', this.onVisibility);
@@ -152,29 +149,15 @@ export class Analyzer {
     if (isFinite(this.lastT)) this.adaptRate(t - this.lastT);
     this.lastT = t;
     this.maxT = Math.max(this.maxT, t);
-    this.frames++;
 
-    // Zoom in on each player we already follow; scan the whole court as well
-    // whenever someone is missing, and periodically regardless.
-    const W = v.videoWidth, Hh = v.videoHeight;
-    const rois = this.lastBox.filter((b): b is Box => !!b).map((b) => roiTile(b, W, Hh));
-    const fullScan = rois.length < 4 || this.frames % FULL_SCAN_EVERY === 0;
     const det = this.detector!;
-    const boxes = det.detect(v, fullScan ? [...rois, ...this.tiles] : rois);
-    const dets: CourtDet[] = [];
-    for (const box of boxes) {
-      const feet = onCourt(project(this.toCourt, { x: box.x + box.w / 2, y: box.y + box.h }));
-      if (feet) dets.push({ p: feet, box, app: det.appearance(v, box) });
-    }
-    const assignments = this.tracker.update(t, dets);
-    this.lastBox = [null, null, null, null];
-    for (const a of assignments) this.lastBox[a.slot] = a.det.box;
+    const assignments = this.sampler!.step(v, t);
     for (const a of assignments) this.maybeThumb(a);
     this.onProgress({
       t,
       duration: v.duration,
       rate: v.playbackRate,
-      frames: this.frames,
+      frames: this.sampler?.frames ?? 0,
       assignments,
       audio: !!this.env,
       engine: `${det.model} · ${det.delegate}`,
@@ -227,10 +210,10 @@ export class Analyzer {
     void this.wakeLock?.release().catch(() => {});
     this.detector?.close();
     this.done({
-      samples: this.tracker.samples,
+      samples: this.sampler?.tracker.samples ?? [[], [], [], []],
       envelope: this.env ? this.env.finish(analysedSec) : null,
       analysedSec,
-      frames: this.frames,
+      frames: this.sampler?.frames ?? 0,
       thumbs: this.thumbs,
     });
   };

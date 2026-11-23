@@ -108,6 +108,29 @@ export function Results({
   );
 
   const anyTracked = result.samples.some((s) => s.length > 0);
+
+  /** Everything computed, including the tracks themselves, as a JSON file. */
+  const exportAnalysis = () => {
+    const r1 = (v: number) => Math.round(v * 10) / 10, r2 = (v: number) => Math.round(v * 100) / 100;
+    const data = {
+      app: 'padel-lab',
+      video: file.name,
+      analysedSec: r1(result.analysedSec),
+      framesSampled: result.frames,
+      me,
+      // [seconds, x metres across, y metres along] per player; y = 0 is the camera end
+      tracks: tracks.map((t) => t.map((p) => [r1(p.t), r2(p.x), r2(p.y)])),
+      rallies: rallies?.map((r) => ({ start: r1(r.start), end: r1(r.end), hits: r.hits })) ?? null,
+      players,
+      teams,
+      rallySummary: summary,
+    };
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+    a.download = `${file.name.replace(/\.[^.]+$/, '')}-padel-lab.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = () => {
@@ -245,6 +268,7 @@ export function Results({
         <div className="actions">
           <button className="primary" onClick={save}>Save match</button>
           <button onClick={onDiscard}>Discard</button>
+          <button onClick={exportAnalysis} disabled={!anyTracked}>Export tracks (JSON)</button>
         </div>
       </section>
     </div>
