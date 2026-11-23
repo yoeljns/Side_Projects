@@ -34,23 +34,35 @@ function region(hCourtToImg: H, yFrom: number, yTo: number, W: number, Hh: numbe
   return r.x1 - r.x0 >= 24 && r.y1 - r.y0 >= 24 ? r : null;
 }
 
-function split(r: Region, maxN: number, overlap: number, aspect: number): Tile[] {
+function split(r: Region, maxN: number, overlap: number, aspect: number, Hh: number): Tile[] {
   const w = r.x1 - r.x0, h = r.y1 - r.y0;
   const n = Math.min(maxN, Math.max(1, Math.round(w / h / aspect)));
   const tw = w / (n - (n - 1) * overlap);
   const tiles: Tile[] = [];
   for (let i = 0; i < n; i++) {
-    tiles.push({ x: r.x0 + i * tw * (1 - overlap), y: r.y0, w: tw, h, innerL: i > 0, innerR: i < n - 1 });
+    tiles.push({
+      x: r.x0 + i * tw * (1 - overlap), y: r.y0, w: tw, h,
+      innerL: i > 0, innerR: i < n - 1,
+      // A far-court strip also shows the top halves of near players. Those
+      // boxes end at the strip's bottom edge and must not pass for whole people.
+      innerT: r.y0 > 0.5, innerB: r.y1 < Hh - 0.5,
+    });
   }
   return tiles;
+}
+
+/** The part of the frame that shows the far half of the court, with headroom for the players. */
+export function farRegion(hCourtToImg: H, W: number, Hh: number): { x: number; y: number; w: number; h: number } | null {
+  const r = region(hCourtToImg, NET_Y, COURT_L, W, Hh);
+  return r ? { x: r.x0, y: r.y0, w: r.x1 - r.x0, h: r.y1 - r.y0 } : null;
 }
 
 export function buildTiles(hCourtToImg: H, W: number, Hh: number): Tile[] {
   const tiles: Tile[] = [];
   const near = region(hCourtToImg, 0, NET_Y, W, Hh);
   const far = region(hCourtToImg, NET_Y, COURT_L, W, Hh);
-  if (near) tiles.push(...split(near, 2, 0.35, 1.6));
-  if (far) tiles.push(...split(far, 3, 0.25, 1));
+  if (near) tiles.push(...split(near, 2, 0.35, 1.6, Hh));
+  if (far) tiles.push(...split(far, 3, 0.3, 2.4, Hh));
   if (tiles.length === 0) tiles.push({ x: 0, y: 0, w: W, h: Hh, innerL: false, innerR: false });
   return tiles;
 }

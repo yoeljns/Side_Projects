@@ -97,6 +97,14 @@ describe('homography', () => {
       expect(t.y + t.h).toBeLessThanOrEqual(1080.001);
     }
   });
+  it('rejects half-people cut off by the bottom of the far-court strip', () => {
+    const tiles = buildTiles(homography(court, img)!, 1920, 1080);
+    const far = tiles[tiles.length - 1];
+    expect(far.innerB).toBe(true);
+    // A near player's torso seen in the far strip: its box ends at the strip's bottom edge.
+    expect(truncatedByTile({ x: far.x + 40, y: far.y + 10, w: 60, h: far.h - 10, score: 0.9 }, far)).toBe(true);
+    expect(truncatedByTile({ x: far.x + 40, y: far.y + 10, w: 30, h: far.h * 0.6, score: 0.9 }, far)).toBe(false);
+  });
   it('zooms on a tracked player and flags boxes cut by the zoom edge', () => {
     const b = { x: 900, y: 400, w: 30, h: 70, score: 0.8 };
     const t = roiTile(b, 1920, 1080);
@@ -150,10 +158,25 @@ describe('tracking', () => {
     expect(tr.samples[0].every((s) => s.y < 5)).toBe(true);
   });
 
+  it('lets motion-only sightings continue a track but never start one', () => {
+    const weak = (x: number, y: number): CourtDet => ({ ...det(x, y), weak: true });
+    const tr = new Tracker();
+    expect(tr.update(0, [weak(3, 15)])).toEqual([]);
+    tr.update(0.2, [det(3, 15), det(8, 17)]);
+    const a = tr.update(0.4, [weak(3.2, 15.1), det(8, 17)]);
+    expect(a.find((x) => x.slot === 2)!.det.weak).toBe(true);
+    // With both on offer for the same player, the real detection wins.
+    const b = tr.update(0.6, [weak(3.3, 15.1), det(3.5, 15.3), det(8, 17)]);
+    expect(b.find((x) => x.slot === 2)!.det.weak).toBeUndefined();
+    // After a long absence, motion alone does not bring the track back.
+    expect(tr.update(10, [weak(3.4, 15.2)])).toEqual([]);
+  });
+
   it('drops people off the court', () => {
     expect(onCourt({ x: -3, y: 5 })).toBeNull();
     expect(onCourt({ x: 5, y: 26 })).toBeNull();
-    expect(onCourt({ x: 10.4, y: -1 })).toEqual({ x: 10, y: 0 });
+    expect(onCourt({ x: 10.2, y: -1 })).toEqual({ x: 10, y: 0 });
+    expect(onCourt({ x: 10.5, y: 5 })).toBeNull(); // a spectator against the side glass
   });
   it('merges duplicate boxes from overlapping tiles', () => {
     const a = { x: 100, y: 100, w: 40, h: 100, score: 0.9 };

@@ -14,6 +14,7 @@ export type ModelName = keyof typeof MODELS;
 type Delegate = 'GPU' | 'CPU';
 
 const TILE_MAX = 640;
+const TILE_MIN = 512;
 const MIN_SCORE = 0.3;
 /** The accurate model is kept if a full court pass fits in this many ms. */
 const ACCURATE_BUDGET_MS = 160;
@@ -99,18 +100,27 @@ export class PersonDetector {
   detect(frame: CanvasImageSource, tiles: Tile[]): Box[] {
     const boxes: Box[] = [];
     for (const t of tiles) {
-      const s = Math.min(1, TILE_MAX / Math.max(t.w, t.h));
-      const cw = Math.max(8, Math.round(t.w * s)), ch = Math.max(8, Math.round(t.h * s));
-      if (this.canvas.width !== cw) this.canvas.width = cw;
-      if (this.canvas.height !== ch) this.canvas.height = ch;
-      this.ctx.drawImage(frame, t.x, t.y, t.w, t.h, 0, 0, cw, ch);
+      // Every crop is drawn onto a square canvas with its proportions kept
+      // (black bars fill the rest) and small crops are enlarged. Handing the
+      // model a wide, short strip to squash was measured on real footage to
+      // lose most far-side players.
+      const side = Math.max(t.w, t.h);
+      const out = Math.round(Math.min(TILE_MAX, Math.max(TILE_MIN, side)));
+      const s = out / side;
+      const ox = (out - t.w * s) / 2, oy = (out - t.h * s) / 2;
+      if (this.canvas.width !== out) this.canvas.width = out;
+      if (this.canvas.height !== out) this.canvas.height = out;
+      this.ctx.fillStyle = '#000';
+      this.ctx.fillRect(0, 0, out, out);
+      this.ctx.imageSmoothingQuality = 'high';
+      this.ctx.drawImage(frame, t.x, t.y, t.w, t.h, ox, oy, t.w * s, t.h * s);
       const res = this.det.detect(this.canvas);
       for (const d of res.detections) {
         const bb = d.boundingBox;
         if (!bb) continue;
         const b: Box = {
-          x: t.x + bb.originX / s,
-          y: t.y + bb.originY / s,
+          x: t.x + (bb.originX - ox) / s,
+          y: t.y + (bb.originY - oy) / s,
           w: bb.width / s,
           h: bb.height / s,
           score: d.categories[0]?.score ?? 0,

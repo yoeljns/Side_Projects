@@ -12,6 +12,8 @@ import { setAudible } from './audio';
 /** Seconds of media time between position samples. */
 const SAMPLE_DT = 0.2;
 const START_RATE = 4;
+/** A device that can't keep up even at normal speed gets slow motion rather than gaps. */
+const MIN_RATE = 0.25;
 
 export type Calibration = {
   /** Four tapped points, normalised to 0..1 of the video frame. */
@@ -109,7 +111,7 @@ export class Analyzer {
     // Loading includes a warm-up pass (the first inference can take seconds),
     // done here so no footage slips past once the video is moving.
     this.detector = await PersonDetector.create(v, this.tiles);
-    this.sampler = new Sampler(this.detector, this.toCourt, this.tiles, v.videoWidth, v.videoHeight);
+    this.sampler = new Sampler(this.detector, this.toCourt, m.toImage, this.tiles, v.videoWidth, v.videoHeight);
     v.playbackRate = START_RATE;
     v.addEventListener('ended', this.finish);
     document.addEventListener('visibilitychange', this.onVisibility);
@@ -174,7 +176,7 @@ export class Analyzer {
     if (!twoSlow && n < 8) return;
     const median = this.gaps.slice().sort((a, b) => a - b)[n >> 1];
     this.gaps = [];
-    if ((twoSlow || median > SAMPLE_DT * 1.8) && v.playbackRate > 1) v.playbackRate = Math.max(1, v.playbackRate / 2);
+    if ((twoSlow || median > SAMPLE_DT * 1.8) && v.playbackRate > MIN_RATE) v.playbackRate = Math.max(MIN_RATE, v.playbackRate / 2);
   }
 
   private maybeThumb({ slot, det }: Assignment): void {

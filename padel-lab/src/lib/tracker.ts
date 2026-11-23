@@ -9,7 +9,13 @@ import { COURT_L, COURT_W, NET_Y, type Pt, type Team } from './court';
 
 export type Box = { x: number; y: number; w: number; h: number; score: number };
 /** A detection on the court floor. `app` is a colour histogram of the torso. */
-export type CourtDet = { p: Pt; box: Box; app?: Float32Array | null };
+export type CourtDet = {
+  p: Pt;
+  box: Box;
+  app?: Float32Array | null;
+  /** Found by motion only, not by the person detector: may continue a track but not start one. */
+  weak?: boolean;
+};
 export type Sample = { t: number; x: number; y: number };
 
 /** Slots 0,1 are the near pair (camera side); 2,3 the far pair. */
@@ -19,7 +25,7 @@ export const slotTeam = (slot: number): Team => (slot < 2 ? 'near' : 'far');
 export const partnerOf = (slot: number): number => slot ^ 1;
 
 /** How far outside the lines a detection may land and still count (metres). */
-const MARGIN_X = 0.5;
+const MARGIN_X = 0.3; // spectators stand right against the side glass
 const MARGIN_NEAR = 2.5; // feet are often cut off at the bottom of the frame
 const MARGIN_FAR = 0.8;
 
@@ -29,6 +35,7 @@ const STALE_SEC = 3; // after this long unseen, a track may be re-acquired anywh
 const NET_SLACK = 1.0; // projection error allowed across the net line
 const MISS_COST = 5; // leaving a track unmatched
 const UNSEEN_COST = 3; // starting a track
+const WEAK_COST = 0.8; // a real detection is preferred over a motion-only one this much closer
 const APP_WEIGHT = 3; // metres of cost for a completely different shirt colour
 const ALPHA = 0.65, BETA = 0.25;
 
@@ -63,6 +70,7 @@ export class Tracker {
   private cost(slot: number, d: CourtDet, t: number): number {
     const near = slot < 2;
     const tr = this.tracks[slot];
+    if (d.weak && (!tr || t - tr.t >= STALE_SEC)) return Infinity;
     if (!tr) {
       if (near ? d.p.y >= NET_Y : d.p.y < NET_Y) return Infinity;
       // First sighting: the left player of a pair takes the pair's first slot.
@@ -76,7 +84,7 @@ export class Tracker {
     if (dt < STALE_SEC && dist > GATE_BASE + MAX_SPEED * dt) return Infinity;
     const app = tr.app && d.app ? APP_WEIGHT * appearanceDistance(tr.app, d.app) : 0;
     // A long-lost track is found again mostly by colour, not by where it was.
-    return Math.min(dist, dt < STALE_SEC ? Infinity : 4) + app;
+    return Math.min(dist, dt < STALE_SEC ? Infinity : 4) + app + (d.weak ? WEAK_COST : 0);
   }
 
   /** Cheapest assignment of detections to the four slots (each det used once). */
