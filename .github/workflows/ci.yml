@@ -9,7 +9,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [morning-board, strategy-arena]
+        project:
+          - morning-board
+          - strategy-arena
+          - negotiation-sparring
+          - decision-journal
+          - two-city
+          - vault-librarian
+          - cycle-atlas
+          - year-in-data
+          - hours-ledger
     defaults:
       run:
         working-directory: ${{ matrix.project }}
